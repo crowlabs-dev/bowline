@@ -23,7 +23,7 @@
     "@bowline/contracts": "workspace:*"
   },
   "devDependencies": {
-    "convex": "^1.41.0",
+    "convex": "^1.42.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.6"
   }
