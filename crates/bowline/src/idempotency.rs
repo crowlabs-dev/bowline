@@ -251,6 +251,7 @@ fn is_idempotent_mutation(command: &Command) -> bool {
     matches!(
         command,
         Command::Approve(_)
+            | Command::Deny(_)
             | Command::Revoke(_)
             | Command::Recovery(recovery::RecoveryArgs::Create)
             | Command::Recovery(recovery::RecoveryArgs::Rotate)
@@ -315,6 +316,10 @@ fn idempotency_cwd_for_request(command: &Command, socket: &Path) -> Option<PathB
 
 pub(super) fn command_has_cwd_relative_target(command: &Command) -> bool {
     match command {
+        Command::Approve(args) | Command::Deny(args) => {
+            workspace_selection_depends_on_cwd(&args.selection)
+        }
+        Command::Revoke(args) => workspace_selection_depends_on_cwd(&args.selection),
         Command::Workon(args) => path_depends_on_cwd(&args.project_path),
         Command::AgentLeaseCreate(args) => path_depends_on_cwd(&args.project_path),
         Command::BootstrapSsh(args) => {
@@ -324,6 +329,14 @@ pub(super) fn command_has_cwd_relative_target(command: &Command) -> bool {
         }
         _ => false,
     }
+}
+
+fn workspace_selection_depends_on_cwd(selection: &WorkspaceSelection) -> bool {
+    path_depends_on_cwd(&selection.root)
+        || selection
+            .project
+            .as_deref()
+            .is_some_and(path_depends_on_cwd)
 }
 
 pub(super) fn path_depends_on_cwd(path: &str) -> bool {
@@ -420,10 +433,14 @@ fn dry_run_plan(command: &Command) -> Option<(CommandName, String, Vec<String>, 
     match command {
         Command::Approve(args) => Some((
             CommandName::Approve,
-            args.request_id
-                .clone()
-                .unwrap_or_else(|| "first pending approval request".to_string()),
+            trust_selector_label(&args.selector),
             vec!["approve a pending device trust request".to_string()],
+            "trust-change".to_string(),
+        )),
+        Command::Deny(args) => Some((
+            CommandName::Deny,
+            trust_selector_label(&args.selector),
+            vec!["deny a pending device trust request".to_string()],
             "trust-change".to_string(),
         )),
         Command::Revoke(args) => Some((
@@ -564,9 +581,11 @@ fn command_name_for_command(command: &Command) -> CommandName {
         Command::Help(_) => CommandName::Help,
         Command::Version => CommandName::Version,
         Command::Contract => CommandName::Contract,
+        Command::Update(_) => CommandName::Update,
         Command::Login(_) => CommandName::Login,
         Command::Logout => CommandName::Logout,
         Command::Approve(_) => CommandName::Approve,
+        Command::Deny(_) => CommandName::Deny,
         Command::Revoke(_) => CommandName::Revoke,
         Command::Init(_) => CommandName::Init,
         Command::Prewarm(_) => CommandName::Prewarm,
@@ -602,7 +621,7 @@ fn command_name_for_command(command: &Command) -> CommandName {
         Command::Daemon(DaemonCommand::Install) => CommandName::DaemonInstall,
         Command::Daemon(DaemonCommand::Restart) => CommandName::DaemonRestart,
         Command::Daemon(DaemonCommand::Uninstall) => CommandName::DaemonUninstall,
-        Command::DiagnosticsCollect => CommandName::DiagnosticsCollect,
+        Command::DiagnosticsCollect(_) => CommandName::DiagnosticsCollect,
         Command::UsageError { command, .. } => *command,
         Command::DevCloudSpike(_) | Command::CommandUsageError(_) | Command::Unknown(_) => {
             CommandName::Unknown
@@ -613,16 +632,45 @@ fn command_name_for_command(command: &Command) -> CommandName {
 fn command_args_for_replay(command: &Command) -> Option<Vec<String>> {
     match command {
         Command::Approve(args) => {
-            let mut argv = vec!["approve".to_string()];
-            if let Some(request_id) = &args.request_id {
-                argv.push(request_id.clone());
+            let mut argv = vec![
+                "approve".to_string(),
+                "--root".to_string(),
+                args.selection.root.clone(),
+            ];
+            if let Some(project) = &args.selection.project {
+                argv.extend(["--project".to_string(), project.clone()]);
             }
+            argv.extend(trust_selector_argv(&args.selector));
             if args.yes {
                 argv.push("--yes".to_string());
             }
             Some(argv)
         }
-        Command::Revoke(args) => Some(vec!["revoke".to_string(), args.device_id.clone()]),
+        Command::Deny(args) => {
+            let mut argv = vec![
+                "deny".to_string(),
+                "--root".to_string(),
+                args.selection.root.clone(),
+            ];
+            if let Some(project) = &args.selection.project {
+                argv.extend(["--project".to_string(), project.clone()]);
+            }
+            argv.extend(trust_selector_argv(&args.selector));
+            Some(argv)
+        }
+        Command::Revoke(args) => {
+            let mut argv = vec![
+                "revoke".to_string(),
+                "--root".to_string(),
+                args.selection.root.clone(),
+                "--device".to_string(),
+                args.device_id.clone(),
+            ];
+            if let Some(project) = &args.selection.project {
+                argv.extend(["--project".to_string(), project.clone()]);
+            }
+            Some(argv)
+        }
         Command::Recovery(recovery::RecoveryArgs::Create) => {
             Some(vec!["recover".to_string(), "create".to_string()])
         }
@@ -717,6 +765,22 @@ fn command_args_for_replay(command: &Command) -> Option<Vec<String>> {
             Some(vec!["daemon".to_string(), "uninstall".to_string()])
         }
         _ => None,
+    }
+}
+
+fn trust_selector_argv(selector: &TrustRequestSelector) -> Vec<String> {
+    match selector {
+        TrustRequestSelector::Request(request_id) => {
+            vec!["--request".to_string(), request_id.clone()]
+        }
+        TrustRequestSelector::Code(code) => vec!["--code".to_string(), code.clone()],
+    }
+}
+
+fn trust_selector_label(selector: &TrustRequestSelector) -> String {
+    match selector {
+        TrustRequestSelector::Request(request_id) => request_id.clone(),
+        TrustRequestSelector::Code(code) => format!("matching code {code}"),
     }
 }
 

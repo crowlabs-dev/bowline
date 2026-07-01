@@ -17,6 +17,9 @@ use bowline_local::agents::{
 };
 use serde_json::Map;
 
+use crate::io_helpers;
+use crate::surface::style::{self, Presentation, Role};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentLeaseCreateArgs {
     pub project_path: String,
@@ -136,32 +139,41 @@ pub fn run_budget(
 }
 
 pub fn render_lease_create_human(output: &AgentLeaseCreateCommandOutput) -> String {
+    let pres = Presentation::detect(false);
     let target_label = match output.lease.write_target_mode {
         bowline_core::commands::AgentWriteTargetMode::Direct => "Project",
         bowline_core::commands::AgentWriteTargetMode::WorkView => "Work view",
     };
     format!(
-        "Agent lease: {}\n{}: {}\nState: active\n\n",
-        output.lease.id.as_str(),
-        target_label,
-        output.lease.write_target_path
+        "{}  {}\n{}  {}\n{}  {}\n\n",
+        style::section("Agent lease", &pres),
+        style::paint(output.lease.id.as_str(), Role::Strong, &pres),
+        style::section(target_label, &pres),
+        output.lease.write_target_path,
+        style::section("State", &pres),
+        style::paint("active", Role::Ready, &pres),
     )
 }
 
 pub fn render_context_human(output: &AgentContextCommandOutput) -> String {
+    let pres = Presentation::detect(false);
     let capabilities = output
         .context
         .capabilities
         .iter()
-        .map(|capability| format!("{:?}", capability.name))
+        .map(|capability| style::kebab(&capability.name))
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "Agent lease: {}\nTarget: {}\nReadiness: {:?}\nCapabilities: {}\n\n",
-        output.context.lease.id.as_str(),
+        "{}  {}\n{}  {}\n{}  {}\n{}  {}\n\n",
+        style::section("Agent lease", &pres),
+        style::paint(output.context.lease.id.as_str(), Role::Strong, &pres),
+        style::section("Target", &pres),
         output.context.lease.write_target_path,
-        output.context.readiness.state,
-        capabilities
+        style::section("Readiness", &pres),
+        style::kebab(&output.context.readiness.state),
+        style::section("Capabilities", &pres),
+        capabilities,
     )
 }
 
@@ -170,19 +182,29 @@ pub fn render_prompt_human(output: &AgentPromptCommandOutput) -> String {
 }
 
 pub fn render_tool_human(output: &AgentToolResult) -> String {
+    let pres = Presentation::detect(false);
     format!(
-        "Agent tool: {:?}\nOutcome: {:?}\nSummary: {}\n\n",
-        output.tool, output.outcome, output.summary
+        "{}  {}\n{}  {}\n{}  {}\n\n",
+        style::section("Agent tool", &pres),
+        style::kebab(&output.tool),
+        style::section("Outcome", &pres),
+        style::kebab(&output.outcome),
+        style::section("Summary", &pres),
+        output.summary,
     )
 }
 
 pub fn render_budget_human(output: &AgentBudgetCommandOutput) -> String {
+    let pres = Presentation::detect(false);
     format!(
-        "Agent lease: {}\nHydration budget: {} bytes -> {} bytes\nRemaining: {} bytes\n\n",
-        output.lease.id.as_str(),
+        "{}  {}\n{}  {} bytes -> {} bytes\n{}  {} bytes\n\n",
+        style::section("Agent lease", &pres),
+        style::paint(output.lease.id.as_str(), Role::Strong, &pres),
+        style::section("Hydration budget", &pres),
         output.previous_limit_bytes,
         output.budget.limit_bytes,
-        output.budget.remaining_bytes
+        style::section("Remaining", &pres),
+        output.budget.remaining_bytes,
     )
 }
 
@@ -200,13 +222,13 @@ fn add_agent_launch_actions(output: &mut AgentContextCommandOutput) {
     }
     let bowline = std::env::current_exe()
         .ok()
-        .map(|path| shell_word(&path.display().to_string()))
+        .map(|path| io_helpers::shell_word(&path.display().to_string()))
         .unwrap_or_else(|| "~/.local/bin/bowline".to_string());
     let command = format!(
         "export PATH=\"$HOME/.local/bin:$PATH\"; {} agent prompt --lease {} | codex exec --cd {} --sandbox workspace-write --add-dir ~/.local/share/bowline --add-dir ~/.local/state/bowline --add-dir ~/.local/state/bowline --add-dir \"$HOME/Library/Application Support/bowline\" --skip-git-repo-check -",
         bowline,
-        shell_word(output.context.lease.id.as_str()),
-        shell_word(&output.context.start_work.cwd),
+        io_helpers::shell_word(output.context.lease.id.as_str()),
+        io_helpers::shell_word(&output.context.start_work.cwd),
     );
     if output
         .context
@@ -267,31 +289,4 @@ fn supports_codex_launch(capability: &AgentCliCapability) -> bool {
         && capability.supports_stdin_launch
         && capability.supports_cwd_selection
         && capability.supports_noninteractive_execution
-}
-
-fn shell_word(value: &str) -> String {
-    if !value.is_empty()
-        && value.bytes().all(|byte| {
-            matches!(
-                byte,
-                b'a'..=b'z'
-                    | b'A'..=b'Z'
-                    | b'0'..=b'9'
-                    | b'/'
-                    | b'.'
-                    | b'_'
-                    | b'-'
-                    | b':'
-                    | b'+'
-                    | b'='
-                    | b'@'
-                    | b'%'
-                    | b'~'
-            )
-        })
-    {
-        return value.to_string();
-    }
-
-    format!("'{}'", value.replace('\'', "'\\''"))
 }

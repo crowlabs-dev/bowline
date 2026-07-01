@@ -16,6 +16,7 @@ use super::{
         ensure_no_symlink_ancestors, ensure_path_inside, expand_display_path, open_store,
         work_namespace_root,
     },
+    status_all_command,
 };
 
 pub fn cleanup_work_views(
@@ -100,6 +101,7 @@ pub fn cleanup_work_views(
         );
     }
 
+    let status_command = status_all_command(&store, &workspace.id)?;
     Ok(WorkCleanupCommandOutput {
         contract_version: CONTRACT_VERSION,
         command: CommandName::Cleanup,
@@ -115,7 +117,7 @@ pub fn cleanup_work_views(
         status: WorkspaceStatus::healthy(),
         next_actions: vec![SafeAction {
             label: "List retained work views".to_string(),
-            command: Some("bowline status --all".to_string()),
+            command: Some(status_command),
         }],
     })
 }

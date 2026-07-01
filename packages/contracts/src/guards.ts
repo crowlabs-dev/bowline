@@ -1,17 +1,176 @@
 import type { AccountLoginState, AccountLoginStatus } from "./account";
-import { AGENT_LEASE_CLEANUP_STATES, AGENT_LEASE_EXECUTION_STATES, AGENT_LEASE_OUTPUT_STATES, AGENT_TOOL_NAMES, type AgentAuditPointer, type AgentBudgetCommandOutput, type AgentCapability, type AgentCliCapability, type AgentCliName, type AgentContextCommandOutput, type AgentContextV1, type AgentEnvProfile, type AgentEnvRestriction, type AgentLease, type AgentLeaseCreateCommandOutput, type AgentLeaseScope, type AgentLeaseScopes, type AgentOutputTarget, type AgentProjectReadiness, type AgentPrompt, type AgentPromptCommandOutput, type AgentReadinessSignal, type AgentReadinessState, type AgentStartWork, type AgentToolDenial, type AgentToolResult, type DegradedExplorationBounds } from "./agent";
-import { type BootstrapSshCommandOutput, type BootstrapStep, type BootstrapStepState } from "./bootstrap";
+import {
+  AGENT_LEASE_CLEANUP_STATES,
+  AGENT_LEASE_EXECUTION_STATES,
+  AGENT_LEASE_OUTPUT_STATES,
+  AGENT_TOOL_NAMES,
+  type AgentAuditPointer,
+  type AgentBudgetCommandOutput,
+  type AgentCapability,
+  type AgentCliCapability,
+  type AgentCliName,
+  type AgentContextCommandOutput,
+  type AgentContextV1,
+  type AgentEnvProfile,
+  type AgentEnvRestriction,
+  type AgentLease,
+  type AgentLeaseCreateCommandOutput,
+  type AgentLeaseScope,
+  type AgentLeaseScopes,
+  type AgentOutputTarget,
+  type AgentProjectReadiness,
+  type AgentPrompt,
+  type AgentPromptCommandOutput,
+  type AgentReadinessSignal,
+  type AgentReadinessState,
+  type AgentStartWork,
+  type AgentToolDenial,
+  type AgentToolResult,
+  type DegradedExplorationBounds,
+} from "./agent";
+import {
+  type BootstrapSshCommandOutput,
+  type BootstrapStep,
+  type BootstrapStepState,
+} from "./bootstrap";
 import { CONTRACT_VERSION } from "./ids";
-import { COMMAND_NAMES, type ActionsCommandOutput, type BoundedOutputControls, type CliCommandDescriptor, type CliCommandExample, type CliCommandGroup, type CliCommandOption, type CommandError, type CommandErrorOutput, type CommandErrorStatus, type CommandRecoverability, type ContractCommandOutput, type ContractFixtureDescriptor, type DaemonCommandOutput, type DaemonProcessOutput, type DaemonServiceOutput, type DaemonServiceState, type DaemonStatusOutput, type DevicesCommandOutput, type DiagnosticsCollectCommandOutput, type DryRunCommandOutput, type ExplainCommandOutput, type HelpCommandOutput, type InitCommandOutput, type LoginCommandOutput, type LogoutCommandOutput, type PrewarmCommandOutcome, type PrewarmCommandOutput, type PrewarmCommandState, type RecoveryCommandOutput, type RootChoiceState, type StatusCommandOutput, type VersionCommandOutput, type WatchFrame } from "./commands";
-import { DEVICE_APPROVAL_REQUEST_STATES, type DeviceApprovalRequest, type DevicePlatform, type DeviceRecord, type DeviceTrustState, type EncryptedDeviceGrant, type EncryptedDeviceGrantState, type RecoveryKeyLifecycle, type RecoveryKeyState, type RevokedDevice } from "./devices";
+import {
+  COMMAND_NAMES,
+  type ActionsCommandOutput,
+  type BoundedOutputControls,
+  type CliCommandDescriptor,
+  type CliCommandExample,
+  type CliCommandGroup,
+  type CliCommandOption,
+  type CommandError,
+  type CommandErrorOutput,
+  type CommandErrorStatus,
+  type CommandRecoverability,
+  type ContractCommandOutput,
+  type ContractFixtureDescriptor,
+  type DaemonCommandOutput,
+  type DaemonProcessOutput,
+  type DaemonServiceOutput,
+  type DaemonServiceState,
+  type DaemonStatusOutput,
+  type DevicesCommandOutput,
+  type DiagnosticsCollectCommandOutput,
+  type DryRunCommandOutput,
+  type ExplainCommandOutput,
+  type HelpCommandOutput,
+  type InitCommandOutput,
+  type LoginCommandOutput,
+  type LogoutCommandOutput,
+  type PrewarmCommandOutcome,
+  type PrewarmCommandOutput,
+  type PrewarmCommandState,
+  type RecoveryCommandOutput,
+  type RootChoiceState,
+  type StatusCommandOutput,
+  type UpdateCommandOutput,
+  type VersionCommandOutput,
+  type WatchFrame,
+} from "./commands";
+import {
+  DEVICE_APPROVAL_REQUEST_STATES,
+  type DeviceApprovalRequest,
+  type DevicePlatform,
+  type DeviceRecord,
+  type DeviceTrustState,
+  type EncryptedDeviceGrant,
+  type EncryptedDeviceGrantState,
+  type RecoveryKeyLifecycle,
+  type RecoveryKeyState,
+  type RevokedDevice,
+} from "./devices";
 import { EVENT_NAMES, type EventName } from "./event-names";
-import type { EventActor, EventActorKind, EventRedaction, EventSeverity, EventSubject, EventSubjectKind, EventsCommandOutput, WorkspaceEvent } from "./events";
-import { ACCESS_FLAGS, MATERIALIZATION_MODES, PATH_CLASSIFICATIONS, type AccessFlag } from "./policy";
-import type { ResolveAction, ResolveAgent, ResolveAgentOption, ResolveAvailableAction, ResolveCommandOutput, ResolveConflict, ResolveConflictSpan, ResolveDiff, ResolvePrompt } from "./resolve";
-import { SYMBOL_KINDS, SYMBOL_LANGUAGES, type SearchCommandOutput, type SearchResult, type SymbolCommandOutput, type SymbolResult } from "./search";
-import { CONTENT_STORAGES, HYDRATION_STATES, NAMESPACE_ENTRY_KINDS, REF_KINDS, SNAPSHOT_KINDS, type ContentLocator, type NamespaceEntry, type SnapshotManifest, type WorkspaceRef } from "./snapshot";
-import { HYDRATION_BUDGET_STATES, INDEX_STATES, STATUS_LEVELS, STATUS_SCOPES, type ComponentState, type EventWatermarks, type HydrationBudgetStatus, type HydrationProgress, type IndexDegradedReason, type IndexStatus, type LimitedCapability, type NetworkState, type ObservedWorkspaceSummary, type ProjectAttentionSummary, type SafeAction, type StatusItem, type StatusItemKind, type StatusLevel, type StatusScope, type StatusSubject, type StatusSubjectKind, type SyncQueueStatus, type WorkspaceStatus, type WorkspaceSummary } from "./status";
-import { WORK_DIFF_CHANGE_KINDS, WORK_VIEW_LIFECYCLES, WORK_VIEW_RETENTION_STATES, WORK_VIEW_SYNC_STATES, WORK_VIEW_VISIBILITIES, type WorkCleanupCommandOutput, type WorkDiffCommandOutput, type WorkDiffEntry, type WorkLifecycleCommandOutput, type WorkListCommandOutput, type WorkView, type WorkViewRetention, type WorkonCommandOutput } from "./work";
+import type {
+  EventActor,
+  EventActorKind,
+  EventRedaction,
+  EventSeverity,
+  EventSubject,
+  EventSubjectKind,
+  EventsCommandOutput,
+  WorkspaceEvent,
+} from "./events";
+import {
+  ACCESS_FLAGS,
+  MATERIALIZATION_MODES,
+  PATH_CLASSIFICATIONS,
+  type AccessFlag,
+} from "./policy";
+import type {
+  ResolveAction,
+  ResolveAgent,
+  ResolveAgentOption,
+  ResolveAvailableAction,
+  ResolveCommandOutput,
+  ResolveConflict,
+  ResolveConflictSpan,
+  ResolveDiff,
+  ResolvePrompt,
+} from "./resolve";
+import {
+  SYMBOL_KINDS,
+  SYMBOL_LANGUAGES,
+  type SearchCommandOutput,
+  type SearchResult,
+  type SymbolCommandOutput,
+  type SymbolResult,
+} from "./search";
+import {
+  CONTENT_STORAGES,
+  HYDRATION_STATES,
+  NAMESPACE_ENTRY_KINDS,
+  REF_KINDS,
+  SNAPSHOT_KINDS,
+  type ContentLocator,
+  type NamespaceEntry,
+  type SnapshotManifest,
+  type WorkspaceRef,
+} from "./snapshot";
+import {
+  HYDRATION_BUDGET_STATES,
+  INDEX_STATES,
+  STATUS_LEVELS,
+  STATUS_SCOPES,
+  type ComponentState,
+  type EventWatermarks,
+  type HydrationBudgetStatus,
+  type HydrationProgress,
+  type IndexDegradedReason,
+  type IndexStatus,
+  type LimitedCapability,
+  type NetworkState,
+  type ObservedWorkspaceSummary,
+  type ProjectAttentionSummary,
+  type SafeAction,
+  type StatusItem,
+  type StatusItemKind,
+  type StatusLevel,
+  type StatusScope,
+  type StatusSubject,
+  type StatusSubjectKind,
+  type SyncQueueStatus,
+  type WorkspaceStatus,
+  type WorkspaceSummary,
+} from "./status";
+import {
+  WORK_DIFF_CHANGE_KINDS,
+  WORK_VIEW_LIFECYCLES,
+  WORK_VIEW_RETENTION_STATES,
+  WORK_VIEW_SYNC_STATES,
+  WORK_VIEW_VISIBILITIES,
+  type WorkCleanupCommandOutput,
+  type WorkDiffCommandOutput,
+  type WorkDiffEntry,
+  type WorkLifecycleCommandOutput,
+  type WorkListCommandOutput,
+  type WorkView,
+  type WorkViewRetention,
+  type WorkonCommandOutput,
+} from "./work";
 
 export function statusNeedsAttention(status: WorkspaceStatus): boolean {
   return status.level !== "healthy" || status.attentionItems.length > 0;
@@ -105,6 +264,22 @@ export function isVersionCommandOutput(
     isNonNegativeInteger(value.protocolVersion) &&
     typeof value.defaultSocket === "string" &&
     typeof value.package === "string"
+  );
+}
+
+export function isUpdateCommandOutput(
+  value: unknown,
+): value is UpdateCommandOutput {
+  return (
+    isRecord(value) &&
+    value.contractVersion === CONTRACT_VERSION &&
+    value.command === "update" &&
+    typeof value.generatedAt === "string" &&
+    typeof value.ok === "boolean" &&
+    typeof value.currentVersion === "string" &&
+    typeof value.latestVersion === "string" &&
+    typeof value.updateAvailable === "boolean" &&
+    typeof value.updateCommand === "string"
   );
 }
 
@@ -355,6 +530,7 @@ export function isDevicesCommandOutput(
     isRecord(value) &&
     value.contractVersion === CONTRACT_VERSION &&
     (value.command === "approve" ||
+      value.command === "deny" ||
       value.command === "revoke" ||
       value.command === "devices") &&
     typeof value.generatedAt === "string" &&
@@ -1438,6 +1614,7 @@ const STATUS_ITEM_KINDS = [
   "materialization",
   "network",
   "index",
+  "update",
 ] as const satisfies readonly StatusItemKind[];
 
 const STATUS_SUBJECT_KINDS = [

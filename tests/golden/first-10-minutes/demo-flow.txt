@@ -1,6 +1,6 @@
 brew install bowline-sh/tap/bowline
-bowline login
-bowline approve
+bowline login --root ~/Code
+bowline approve --root ~/Code --code <matching-code>
 bowline connect linux-server-1
 cd ~/Code/acme/web
 pnpm dev

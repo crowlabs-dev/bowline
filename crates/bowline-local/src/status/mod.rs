@@ -34,7 +34,8 @@ use crate::{
     events::EventQuery,
     hydration_budget::lease_budget_status,
     metadata::{
-        DatabaseState, MetadataError, MetadataStore, SyncOperationCounts, default_database_path,
+        DatabaseState, MetadataError, MetadataStore, SyncOperationCounts, WorkspaceRecord,
+        default_database_path,
     },
     sync::conflicts::{ConflictBundleError, unresolved_conflict_paths},
     work_views::WorkViewError,
@@ -155,71 +156,6 @@ pub fn initial_watch_frame(status: StatusCommandOutput) -> WatchFrame {
         watermark: status.event_watermarks.clone(),
         status: Box::new(status),
     }
-}
-
-pub fn render_status_human(output: &StatusCommandOutput) -> String {
-    let mut lines = vec![
-        format!(
-            "Workspace: {}",
-            output.resolved_workspace_root.as_deref().unwrap_or("local")
-        ),
-        format!("Status: {}", status_level_label(output.status.level)),
-    ];
-
-    if output.status.attention_items.is_empty() {
-        lines.push("Attention: none".to_string());
-    } else {
-        lines.push("Attention:".to_string());
-        lines.extend(
-            output
-                .status
-                .attention_items
-                .iter()
-                .map(|item| format!("  {item}")),
-        );
-    }
-
-    if !output.items.is_empty() {
-        lines.push("Details:".to_string());
-        lines.extend(
-            output
-                .items
-                .iter()
-                .map(|item| format!("  {}", item.summary)),
-        );
-    }
-
-    if let Some(index) = &output.index {
-        lines.push(format!("Index: {:?} - {}", index.state, index.summary));
-    }
-
-    if !output.limits.is_empty() {
-        lines.push("Limited capabilities:".to_string());
-        lines.extend(output.limits.iter().map(|limit| {
-            format!(
-                "  {}: {}; still works: {}",
-                limit.capability,
-                limit.unavailable_because,
-                limit.still_works.join(", ")
-            )
-        }));
-    }
-
-    if !output.next_actions.is_empty() {
-        lines.push("Suggested actions:".to_string());
-        lines.extend(
-            output
-                .next_actions
-                .iter()
-                .map(|action| match &action.command {
-                    Some(command) => format!("  {}: {command}", action.label),
-                    None => format!("  {}", action.label),
-                }),
-        );
-    }
-
-    lines.push(String::new());
-    lines.join("\n")
 }
 
 pub fn render_events_human(output: &EventsCommandOutput) -> String {

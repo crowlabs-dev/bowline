@@ -99,23 +99,26 @@ mod tests {
             actions: vec![
                 SafeAction {
                     label: "Approve Dev-Mac".to_string(),
-                    command: Some("bowline approve device-request:dev-mac".to_string()),
+                    command: Some(
+                        "bowline approve --root ~/Code --request device-request:dev-mac"
+                            .to_string(),
+                    ),
                 },
                 SafeAction {
                     label: "Inspect status".to_string(),
-                    command: Some("bowline status".to_string()),
+                    command: Some("bowline status --root ~/Code".to_string()),
                 },
             ],
             non_actions: Vec::new(),
         };
-        let snapshot = render_snapshot(&TuiModel::from_actions(&output), 72, 14);
+        let snapshot = render_snapshot(&TuiModel::from_actions(&output), 72, 16);
 
         assert!(snapshot.contains("Approve Dev-Mac"));
         assert!(snapshot.contains("Inspect status"));
         assert!(snapshot.contains("[changes]"));
         assert!(snapshot.contains("A decision or repair path needs attention."));
         assert!(
-            snapshot.contains("Enter asks for confirmation"),
+            snapshot.contains("Command: bowline approve --root ~/Code --request"),
             "\n{snapshot}"
         );
     }
@@ -139,7 +142,7 @@ mod tests {
             actions: vec![
                 SafeAction {
                     label: "Inspect sync".to_string(),
-                    command: Some("bowline status".to_string()),
+                    command: Some("bowline status --root ~/Code".to_string()),
                 },
                 SafeAction {
                     label: "Verify Recovery Key".to_string(),
@@ -216,7 +219,9 @@ mod tests {
             },
             actions: vec![SafeAction {
                 label: "Approve Dev-Mac".to_string(),
-                command: Some("bowline approve device-request:dev-mac".to_string()),
+                command: Some(
+                    "bowline approve --root ~/Code --request device-request:dev-mac".to_string(),
+                ),
             }],
             non_actions: Vec::new(),
         };
@@ -226,7 +231,11 @@ mod tests {
         let snapshot = render_snapshot(&model, 72, 12);
 
         assert!(snapshot.contains("Confirm"));
-        assert!(snapshot.contains("Command: bowline approve device-request:dev-mac"));
+        assert!(
+            snapshot.contains(
+                "Command: bowline approve --root ~/Code --request device-request:dev-mac"
+            )
+        );
         assert!(snapshot.contains("Enter runs the selected command."));
         assert!(snapshot.contains("Esc cancels."));
     }
@@ -247,11 +256,16 @@ mod tests {
             actions: vec![
                 SafeAction {
                     label: "Approve Dev-Mac".to_string(),
-                    command: Some("bowline approve device-request:dev-mac".to_string()),
+                    command: Some(
+                        "bowline approve --root ~/Code --request device-request:dev-mac"
+                            .to_string(),
+                    ),
                 },
                 SafeAction {
                     label: "Revoke Dev-Mac".to_string(),
-                    command: Some("bowline revoke device-request:dev-mac".to_string()),
+                    command: Some(
+                        "bowline revoke --root ~/Code --device device-request:dev-mac".to_string(),
+                    ),
                 },
             ],
             non_actions: Vec::new(),
@@ -262,8 +276,15 @@ mod tests {
 
         let snapshot = render_snapshot(&model, 96, 14);
 
-        assert!(snapshot.contains("Command: bowline approve device-request:dev-mac"));
-        assert!(!snapshot.contains("Command: bowline revoke device-request:dev-mac"));
+        assert!(
+            snapshot.contains(
+                "Command: bowline approve --root ~/Code --request device-request:dev-mac"
+            )
+        );
+        assert!(
+            !snapshot
+                .contains("Command: bowline revoke --root ~/Code --device device-request:dev-mac")
+        );
     }
 
     #[test]

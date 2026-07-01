@@ -22,7 +22,7 @@
   "nextActions": [
     {
       "label": "Inspect workspace status",
-      "command": "bowline status",
+      "command": "bowline status --root ~/Code",
       "effectCategory": "inspect",
       "targetKind": "workspace"
     }

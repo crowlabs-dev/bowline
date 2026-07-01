@@ -1,6 +1,16 @@
-import type { ContentId, PackId, ProjectId, SnapshotId, WorkspaceId } from "./ids";
+import type {
+  ContentId,
+  PackId,
+  ProjectId,
+  SnapshotId,
+  WorkspaceId,
+} from "./ids";
 import type { CONTRACT_VERSION } from "./ids";
-import type { AccessFlag, MaterializationMode, PathClassification } from "./policy";
+import type {
+  AccessFlag,
+  MaterializationMode,
+  PathClassification,
+} from "./policy";
 
 export const SNAPSHOT_KINDS = [
   "base",

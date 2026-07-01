@@ -468,6 +468,7 @@ dependencies = [
  "bowline-storage",
  "crossterm 0.29.0",
  "ratatui",
+ "semver",
  "serde",
  "serde_json",
  "time",

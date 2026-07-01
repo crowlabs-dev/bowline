@@ -211,7 +211,7 @@ where
                 crate::bootstrap::ssh::shell_quote(root)
             )
         })
-        .unwrap_or_else(|| "bowline login --no-poll --json".to_string());
+        .unwrap_or_else(|| "bowline login --root <path> --no-poll --json".to_string());
     let workspace_key = key_store
         .load_workspace_key(&options.workspace_id)?
         .ok_or_else(|| TrustError::MissingWorkspaceKey(options.workspace_id.clone()))?;
@@ -425,7 +425,6 @@ pub fn devices_output_for_request(
     generated_at: String,
     request: DeviceApprovalRequest,
 ) -> DevicesCommandOutput {
-    let approve_command = format!("bowline approve {}", request.request_id.as_str());
     DevicesCommandOutput {
         contract_version: CONTRACT_VERSION,
         command: bowline_core::commands::CommandName::Devices,
@@ -443,7 +442,7 @@ pub fn devices_output_for_request(
         recovery_key: Some(RecoveryKeyState::missing()),
         next_actions: vec![SafeAction {
             label: "Approve this device from an already trusted device".to_string(),
-            command: Some(approve_command),
+            command: None,
         }],
     }
 }
@@ -461,7 +460,8 @@ mod tests {
 
     use super::{
         ApproveDeviceOptions, DeviceRequestOptions, TrustError, accept_device_grant,
-        approve_device_request, create_device_request, ensure_first_device_trust_root, grants,
+        approve_device_request, create_device_request, devices_output_for_request,
+        ensure_first_device_trust_root, grants,
     };
     use crate::{
         device_keys::{
@@ -634,6 +634,48 @@ mod tests {
             .expect("trust list");
         assert_eq!(trust.authorized_devices.len(), 1);
         assert_eq!(original_key.workspace_id, workspace_id);
+    }
+
+    #[test]
+    fn request_output_does_not_reuse_requester_root_for_approval_command() {
+        let control_plane = FakeControlPlaneClient::new(
+            DeterministicClock::new(1),
+            DeterministicIdGenerator::new("request-output-action-test"),
+        );
+        let workspace_id = WorkspaceId::new("workspace-request-output");
+        control_plane.create_workspace(workspace_id.as_str());
+        let requester_keychain = FakeKeychain::default();
+        let request = create_device_request(
+            &control_plane,
+            &requester_keychain,
+            DeviceRequestOptions {
+                workspace_id,
+                device_id: DeviceId::new("fresh-linux"),
+                device_name: "Fresh Linux".to_string(),
+                platform: DevicePlatform::Linux,
+                host: None,
+                root: Some("~/Remote Code".to_string()),
+                generated_at: "t000000000002".to_string(),
+            },
+        )
+        .expect("fresh device request");
+
+        let output = devices_output_for_request("t000000000003".to_string(), request);
+
+        assert_eq!(
+            output
+                .created_request
+                .as_ref()
+                .and_then(|request| request.root.as_deref()),
+            Some("~/Remote Code")
+        );
+        assert_eq!(
+            output
+                .next_actions
+                .first()
+                .and_then(|action| action.command.as_deref()),
+            None
+        );
     }
 
     #[test]

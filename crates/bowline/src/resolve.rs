@@ -15,6 +15,8 @@ use bowline_local::metadata::{MetadataStore, SyncOperationRecord};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::surface::style::{self, Presentation, Role};
+
 const ENV_STATE_ROOT: &str = "BOWLINE_STATE_ROOT";
 const PRIVATE_STATE_ROOT: &str = ".bowline";
 
@@ -234,21 +236,33 @@ pub fn run(args: ResolveArgs, generated_at: String) -> ResolveCommandOutput {
 }
 
 pub fn render_human(output: &ResolveCommandOutput) -> String {
-    let mut lines = Vec::new();
-    lines.push(format!("Resolve: {}", output.status.summary));
+    let pres = Presentation::detect(false);
+    let mut lines = vec![format!(
+        "{}  {}",
+        style::section("Resolve", &pres),
+        output.status.summary
+    )];
     if output.conflicts.is_empty() {
         lines.push(format!(
-            "No unresolved conflicts under {}.",
-            output.project_or_path
+            "  {}",
+            style::paint(
+                &format!("No unresolved conflicts under {}.", output.project_or_path),
+                Role::Label,
+                &pres,
+            )
         ));
     } else {
         for conflict in &output.conflicts {
-            lines.push(format!(
-                "- {} at {} ({})",
-                conflict.id, conflict.bundle_path, conflict.active_view
+            lines.push(style::bullet(
+                Role::Attention,
+                &format!(
+                    "{} at {} ({})",
+                    conflict.id, conflict.bundle_path, conflict.active_view
+                ),
+                &pres,
             ));
             for file in &conflict.affected_files {
-                lines.push(format!("  {}", file));
+                lines.push(format!("      {}", style::paint(file, Role::Label, &pres)));
             }
         }
     }
@@ -260,7 +274,7 @@ pub fn render_human(output: &ResolveCommandOutput) -> String {
             .map(|agent| agent.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        lines.push(format!("Available agents: {agents}"));
+        lines.push(format!("{}  {agents}", style::section("Agents", &pres)));
     }
 
     if let Some(diff) = &output.diff {
@@ -271,12 +285,12 @@ pub fn render_human(output: &ResolveCommandOutput) -> String {
         lines.push(prompt.text.clone());
     } else if !output.next_actions.is_empty() {
         lines.push(String::new());
-        lines.push("Actions:".to_string());
+        lines.push(style::section("Next", &pres));
         for action in &output.next_actions {
-            match &action.command {
-                Some(command) => lines.push(format!("- {}: {}", action.label, command)),
-                None => lines.push(format!("- {}", action.label)),
-            }
+            lines.push(match &action.command {
+                Some(command) => style::next_action(command, &action.label, &pres),
+                None => format!("  {}", style::paint(&action.label, Role::Label, &pres)),
+            });
         }
     }
 

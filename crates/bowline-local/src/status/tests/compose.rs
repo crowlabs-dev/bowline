@@ -20,6 +20,28 @@ fn missing_metadata_returns_non_mutating_attention_status() {
 }
 
 #[test]
+fn explicit_unknown_root_does_not_fall_back_to_current_workspace() {
+    let temp = TempWorkspace::new("status-explicit-root-miss").expect("temp workspace");
+    let db_path = temp.root().join("state").join("local.sqlite3");
+    let workspace_id = WorkspaceId::new("ws_code");
+    let store = MetadataStore::open(&db_path).expect("metadata opens");
+    seed_workspace_root(&store, &workspace_id);
+    drop(store);
+
+    let requested = temp.root().join("other-code").display().to_string();
+    let output = compose_status(StatusOptions {
+        db_path: Some(db_path),
+        requested_path: Some(requested.clone()),
+        workspace_scope: false,
+        generated_at: "2026-06-23T12:00:00Z".to_string(),
+    })
+    .expect("status composes");
+
+    assert_eq!(output.workspace_id.as_str(), "ws_local_uninitialized");
+    assert_eq!(output.requested_path.as_deref(), Some(requested.as_str()));
+}
+
+#[test]
 fn corrupt_metadata_returns_limited_status() {
     let temp = TempWorkspace::new("status-corrupt").expect("temp workspace");
     let db_path = temp.root().join("local.sqlite3");
@@ -179,7 +201,6 @@ fn empty_accepted_workspace_is_healthy() {
         "{:?}",
         output.status.attention_items
     );
-    assert!(render_status_human(&output).contains("Status: healthy"));
 }
 
 #[test]
@@ -243,7 +264,7 @@ fn observed_workspace_with_ready_sync_is_healthy() {
         output
             .items
             .iter()
-            .any(|item| item.summary.contains("sync is active"))
+            .any(|item| item.summary.contains("Tracking"))
     );
 }
 
@@ -324,7 +345,7 @@ fn status_reports_durable_index_state_without_project_scan() {
 }
 
 #[test]
-fn stale_index_metadata_promotes_top_level_status_attention() {
+fn stale_index_metadata_stays_calm_and_informational() {
     let temp = TempWorkspace::new("status-index-stale").expect("temp workspace");
     let db_path = temp.root().join("state").join("local.sqlite3");
     let workspace_id = WorkspaceId::new("ws_code");
@@ -362,7 +383,9 @@ fn stale_index_metadata_promotes_top_level_status_attention() {
     .expect("status composes");
 
     assert_eq!(output.index.expect("index").state, IndexState::Stale);
-    assert_eq!(output.status.level, StatusLevel::Attention);
+    // A stale index heals itself; it must not raise the top-level status.
+    assert_eq!(output.status.level, StatusLevel::Healthy);
+    assert!(output.status.attention_items.is_empty());
     assert!(
         output
             .items

@@ -55,6 +55,17 @@ pub(super) fn parse_login_command(args: &[String]) -> Command {
             }
         }
     }
+    if root.is_none() {
+        return command_usage_error(
+            CommandName::Login,
+            "usage_error",
+            "bowline login requires --root <path>".to_string(),
+            vec![SafeAction {
+                label: "Log in and prepare ~/Code".to_string(),
+                command: Some("bowline login --root ~/Code".to_string()),
+            }],
+        );
+    }
 
     Command::Login(login::LoginArgs {
         root,
@@ -64,99 +75,206 @@ pub(super) fn parse_login_command(args: &[String]) -> Command {
 }
 
 pub(super) fn parse_approve_command(args: &[String]) -> Command {
-    let mut request_id = None;
+    let mut selection = ParsedSelection::default();
+    let mut selector = None;
     let mut yes = false;
-    for arg in args {
-        match arg.as_str() {
-            "--yes" => yes = true,
-            flag if flag.starts_with("--") => {
-                return command_usage_error(
-                    CommandName::Approve,
-                    "usage_error",
-                    format!("unknown bowline approve option `{flag}`"),
-                    vec![SafeAction {
-                        label: "Approve pending device".to_string(),
-                        command: Some("bowline approve".to_string()),
-                    }],
-                );
+    let mut index = 0_usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Approve, "approve", "--root");
+                };
+                selection.root = Some(value.clone());
+                index += 2;
             }
-            value if request_id.is_none() => request_id = Some(value.to_string()),
+            "--project" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Approve, "approve", "--project");
+                };
+                selection.project = Some(value.clone());
+                index += 2;
+            }
+            "--request" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Approve, "approve", "--request");
+                };
+                if selector.is_some() {
+                    return trust_selector_error(CommandName::Approve, "approve");
+                }
+                selector = Some(TrustRequestSelector::Request(value.clone()));
+                index += 2;
+            }
+            "--code" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Approve, "approve", "--code");
+                };
+                if selector.is_some() {
+                    return trust_selector_error(CommandName::Approve, "approve");
+                }
+                selector = Some(TrustRequestSelector::Code(value.clone()));
+                index += 2;
+            }
+            "--yes" => {
+                yes = true;
+                index += 1;
+            }
+            flag if flag.starts_with("--") => {
+                return unknown_option(CommandName::Approve, "approve", flag);
+            }
             value => {
-                return command_usage_error(
-                    CommandName::Approve,
-                    "usage_error",
-                    format!("unexpected bowline approve argument `{value}`"),
-                    vec![SafeAction {
-                        label: "Approve pending device".to_string(),
-                        command: Some("bowline approve".to_string()),
-                    }],
-                );
+                return unexpected_argument(CommandName::Approve, "approve", value);
             }
         }
     }
-    Command::Approve(ApproveArgs { request_id, yes })
+    let Some(selector) = selector else {
+        return trust_selector_error(CommandName::Approve, "approve");
+    };
+    let Some(selection) = selection.finish(CommandName::Approve, "approve") else {
+        return missing_root(CommandName::Approve, "approve");
+    };
+    Command::Approve(ApproveArgs {
+        selection,
+        selector,
+        yes,
+    })
+}
+
+pub(super) fn parse_deny_command(args: &[String]) -> Command {
+    let mut selection = ParsedSelection::default();
+    let mut selector = None;
+    let mut index = 0_usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Deny, "deny", "--root");
+                };
+                selection.root = Some(value.clone());
+                index += 2;
+            }
+            "--project" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Deny, "deny", "--project");
+                };
+                selection.project = Some(value.clone());
+                index += 2;
+            }
+            "--request" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Deny, "deny", "--request");
+                };
+                if selector.is_some() {
+                    return trust_selector_error(CommandName::Deny, "deny");
+                }
+                selector = Some(TrustRequestSelector::Request(value.clone()));
+                index += 2;
+            }
+            "--code" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Deny, "deny", "--code");
+                };
+                if selector.is_some() {
+                    return trust_selector_error(CommandName::Deny, "deny");
+                }
+                selector = Some(TrustRequestSelector::Code(value.clone()));
+                index += 2;
+            }
+            flag if flag.starts_with("--") => {
+                return unknown_option(CommandName::Deny, "deny", flag);
+            }
+            value => {
+                return unexpected_argument(CommandName::Deny, "deny", value);
+            }
+        }
+    }
+    let Some(selector) = selector else {
+        return trust_selector_error(CommandName::Deny, "deny");
+    };
+    let Some(selection) = selection.finish(CommandName::Deny, "deny") else {
+        return missing_root(CommandName::Deny, "deny");
+    };
+    Command::Deny(ApproveArgs {
+        selection,
+        selector,
+        yes: true,
+    })
 }
 
 pub(super) fn parse_revoke_command(args: &[String]) -> Command {
-    match args {
-        [device_id] => Command::Revoke(RevokeArgs {
-            device_id: device_id.to_string(),
-        }),
-        [] => command_usage_error(
-            CommandName::Revoke,
-            "usage_error",
-            "bowline revoke requires a device id".to_string(),
-            vec![SafeAction {
-                label: "Inspect workspace status".to_string(),
-                command: Some("bowline status".to_string()),
-            }],
-        ),
-        [flag, ..] if flag.starts_with("--") => command_usage_error(
-            CommandName::Revoke,
-            "usage_error",
-            format!("unknown bowline revoke option `{flag}`"),
-            vec![SafeAction {
-                label: "Inspect workspace status".to_string(),
-                command: Some("bowline status".to_string()),
-            }],
-        ),
-        _ => command_usage_error(
-            CommandName::Revoke,
-            "usage_error",
-            "bowline revoke accepts exactly one device id".to_string(),
-            vec![SafeAction {
-                label: "Inspect workspace status".to_string(),
-                command: Some("bowline status".to_string()),
-            }],
-        ),
+    let mut selection = ParsedSelection::default();
+    let mut device_id = None;
+    let mut index = 0_usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Revoke, "revoke", "--root");
+                };
+                selection.root = Some(value.clone());
+                index += 2;
+            }
+            "--project" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Revoke, "revoke", "--project");
+                };
+                selection.project = Some(value.clone());
+                index += 2;
+            }
+            "--device" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Revoke, "revoke", "--device");
+                };
+                device_id = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--") => {
+                return unknown_option(CommandName::Revoke, "revoke", flag);
+            }
+            value => {
+                return unexpected_argument(CommandName::Revoke, "revoke", value);
+            }
+        }
     }
+    let Some(device_id) = device_id else {
+        return command_usage_error(
+            CommandName::Revoke,
+            "usage_error",
+            "bowline revoke requires --device <id>".to_string(),
+            trust_usage_actions("revoke"),
+        );
+    };
+    let Some(selection) = selection.finish(CommandName::Revoke, "revoke") else {
+        return missing_root(CommandName::Revoke, "revoke");
+    };
+    Command::Revoke(RevokeArgs {
+        selection,
+        device_id,
+    })
 }
 
 pub(super) fn parse_init_command(args: &[String]) -> Command {
-    match args {
-        [] => Command::Init(InitArgs { root: None }),
-        [flag, ..] if flag.starts_with("--") => command_usage_error(
-            CommandName::Init,
-            "usage_error",
-            format!("unknown bowline login option `{flag}`"),
-            vec![SafeAction {
-                label: "Log in and choose a root".to_string(),
-                command: Some("bowline login --root <path>".to_string()),
-            }],
-        ),
-        [root] => Command::Init(InitArgs {
-            root: Some(root.to_string()),
-        }),
-        _ => command_usage_error(
-            CommandName::Init,
-            "usage_error",
-            "bowline login accepts at most one root path".to_string(),
-            vec![SafeAction {
-                label: "Log in and choose a root".to_string(),
-                command: Some("bowline login --root <path>".to_string()),
-            }],
-        ),
+    let mut root = None;
+    let mut index = 0_usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Init, "init", "--root");
+                };
+                root = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--") => {
+                return unknown_option(CommandName::Init, "init", flag);
+            }
+            value => return unexpected_argument(CommandName::Init, "init", value),
+        }
     }
+    let Some(root) = root else {
+        return missing_root(CommandName::Init, "init");
+    };
+    Command::Init(InitArgs { root })
 }
 
 pub(super) fn parse_prewarm_command(args: &[String]) -> Command {
@@ -232,97 +350,165 @@ pub(super) fn parse_setup_command(args: &[String]) -> Command {
 
 pub(super) fn parse_status_command(args: &[String]) -> Command {
     let mut watch = false;
-    let mut workspace = false;
-    let mut path = None;
+    let mut include_all = false;
+    let mut selection = ParsedSelection::default();
+    let mut index = 0_usize;
 
-    for arg in args {
-        match arg.as_str() {
-            "--watch" => watch = true,
-            "--workspace" | "--all" => workspace = true,
+    while index < args.len() {
+        match args[index].as_str() {
+            "--watch" => {
+                watch = true;
+                index += 1;
+            }
+            "--all" => {
+                include_all = true;
+                index += 1;
+            }
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Status, "status", "--root");
+                };
+                selection.root = Some(value.clone());
+                index += 2;
+            }
+            "--project" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Status, "status", "--project");
+                };
+                selection.project = Some(value.clone());
+                index += 2;
+            }
+            "--workspace" => return unknown_option(CommandName::Status, "status", "--workspace"),
             flag if flag.starts_with("--") => {
-                return usage_error(
-                    CommandName::Status,
-                    format!("unknown bowline status option `{flag}`"),
-                );
+                return unknown_option(CommandName::Status, "status", flag);
             }
-            value if path.is_none() => path = Some(value.to_string()),
-            _ => {
-                return usage_error(
-                    CommandName::Status,
-                    "bowline status accepts at most one path",
-                );
-            }
+            value => return unexpected_argument(CommandName::Status, "status", value),
         }
     }
+    let Some(selection) = selection.finish(CommandName::Status, "status") else {
+        return missing_root(CommandName::Status, "status");
+    };
 
     Command::Status(StatusArgs {
-        path,
+        selection,
         watch,
-        workspace,
+        include_all,
     })
 }
 
 pub(super) fn parse_actions_command(args: &[String]) -> Command {
-    let mut workspace = false;
-    let mut path = None;
-
-    for arg in args {
-        match arg.as_str() {
-            "--workspace" => workspace = true,
-            flag if flag.starts_with("--") => {
-                return command_usage_error(
-                    CommandName::Actions,
-                    "usage_error",
-                    format!("unknown bowline status option `{flag}`"),
-                    vec![SafeAction {
-                        label: "Inspect workspace status".to_string(),
-                        command: Some("bowline status [path] --json".to_string()),
-                    }],
-                );
-            }
-            value if path.is_none() => path = Some(value.to_string()),
-            _ => {
-                return command_usage_error(
-                    CommandName::Actions,
-                    "usage_error",
-                    "bowline status accepts at most one path".to_string(),
-                    vec![SafeAction {
-                        label: "Inspect workspace status".to_string(),
-                        command: Some("bowline status [path] --json".to_string()),
-                    }],
-                );
-            }
-        }
+    match parse_selection_only(CommandName::Actions, "actions", args) {
+        Ok(selection) => Command::Actions(ActionsArgs { selection }),
+        Err(error) => *error,
     }
-
-    Command::Actions(ActionsArgs { path, workspace })
 }
 
 pub(super) fn parse_tui_command(args: &[String]) -> Command {
-    match args {
-        [] => Command::Tui(TuiArgs { path: None }),
-        [flag, ..] if flag.starts_with("--") => command_usage_error(
-            CommandName::Tui,
-            "usage_error",
-            format!("unknown bowline tui option `{flag}`"),
-            vec![SafeAction {
-                label: "Open the terminal UI".to_string(),
-                command: Some("bowline tui [path]".to_string()),
-            }],
-        ),
-        [path] => Command::Tui(TuiArgs {
-            path: Some(path.to_string()),
-        }),
-        _ => command_usage_error(
-            CommandName::Tui,
-            "usage_error",
-            "bowline tui accepts at most one path".to_string(),
-            vec![SafeAction {
-                label: "Open the terminal UI".to_string(),
-                command: Some("bowline tui [path]".to_string()),
-            }],
-        ),
+    match parse_selection_only(CommandName::Tui, "tui", args) {
+        Ok(selection) => Command::Tui(TuiArgs { selection }),
+        Err(error) => *error,
     }
+}
+
+#[derive(Default)]
+pub(super) struct ParsedSelection {
+    pub(super) root: Option<String>,
+    pub(super) project: Option<String>,
+}
+
+impl ParsedSelection {
+    pub(super) fn finish(self, _command: CommandName, _name: &str) -> Option<WorkspaceSelection> {
+        Some(WorkspaceSelection {
+            root: self.root?,
+            project: self.project,
+        })
+    }
+}
+
+pub(super) fn parse_selection_only(
+    command: CommandName,
+    name: &str,
+    args: &[String],
+) -> Result<WorkspaceSelection, Box<Command>> {
+    let mut selection = ParsedSelection::default();
+    let mut index = 0_usize;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(Box::new(missing_value(command, name, "--root")));
+                };
+                selection.root = Some(value.clone());
+                index += 2;
+            }
+            "--project" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(Box::new(missing_value(command, name, "--project")));
+                };
+                selection.project = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--") => {
+                return Err(Box::new(unknown_option(command, name, flag)));
+            }
+            value => return Err(Box::new(unexpected_argument(command, name, value))),
+        }
+    }
+    selection
+        .finish(command, name)
+        .ok_or_else(|| Box::new(missing_root(command, name)))
+}
+
+pub(super) fn missing_root(command: CommandName, name: &str) -> Command {
+    command_usage_error(
+        command,
+        "usage_error",
+        format!("bowline {name} requires --root <path>"),
+        trust_usage_actions(name),
+    )
+}
+
+pub(super) fn missing_value(command: CommandName, name: &str, flag: &str) -> Command {
+    command_usage_error(
+        command,
+        "usage_error",
+        format!("bowline {name} {flag} requires a value"),
+        trust_usage_actions(name),
+    )
+}
+
+pub(super) fn unknown_option(command: CommandName, name: &str, flag: &str) -> Command {
+    command_usage_error(
+        command,
+        "usage_error",
+        format!("unknown bowline {name} option `{flag}`"),
+        trust_usage_actions(name),
+    )
+}
+
+pub(super) fn unexpected_argument(command: CommandName, name: &str, value: &str) -> Command {
+    command_usage_error(
+        command,
+        "usage_error",
+        format!("unexpected bowline {name} argument `{value}`"),
+        trust_usage_actions(name),
+    )
+}
+
+fn trust_selector_error(command: CommandName, name: &str) -> Command {
+    command_usage_error(
+        command,
+        "usage_error",
+        format!("bowline {name} requires exactly one of --request <id> or --code <matching-code>"),
+        trust_usage_actions(name),
+    )
+}
+
+fn trust_usage_actions(name: &str) -> Vec<SafeAction> {
+    vec![SafeAction {
+        label: format!("Run {name} with an explicit root"),
+        command: Some(format!("bowline {name} --root ~/Code")),
+    }]
 }
 
 pub(super) fn parse_search_command(args: &[String]) -> Command {

@@ -87,14 +87,8 @@ pub(super) fn apply_index_status(
     match index.state {
         IndexState::Ready => {}
         IndexState::Stale | IndexState::Rebuilding => {
-            if *level == StatusLevel::Healthy {
-                *level = StatusLevel::Attention;
-            }
-            attention_items.push(if index.state == IndexState::Rebuilding {
-                "Index is rebuilding.".to_string()
-            } else {
-                "Index metadata is stale.".to_string()
-            });
+            // Catch-up work heals itself; surface it as information, not a
+            // problem the user must act on.
             let mut item = base_status_item(StatusItemKind::Index, &index.summary);
             item.subject = Some(StatusSubject {
                 kind: StatusSubjectKind::Index,

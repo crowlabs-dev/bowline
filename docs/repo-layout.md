@@ -84,8 +84,7 @@ pnpm deploy:public --target <public-repo>
 `deploy:public` only commits generated public source. `pnpm ship` is the private
 top-level runtime deploy for public source, Convex, Cloudflare, and production
 URL smokes. `pnpm release --version <semver>` is the package/binary release
-entrypoint for downloadable artifacts, public GitHub releases, and the Homebrew
-tap.
+entrypoint for downloadable assets served by `install.bowline.sh`.
 
 For Rust-only work:
 

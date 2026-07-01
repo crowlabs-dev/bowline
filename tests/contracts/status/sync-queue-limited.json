@@ -48,7 +48,7 @@
   "nextActions": [
     {
       "label": "Inspect recent events",
-      "command": "bowline status --watch",
+      "command": "bowline status --root ~/Code --watch",
       "effectCategory": "inspect",
       "targetKind": "workspace"
     }

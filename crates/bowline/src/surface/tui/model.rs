@@ -36,6 +36,7 @@ impl TuiAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TuiTone {
     Healthy,
+    Preparing,
     Attention,
     Limited,
 }
@@ -44,6 +45,7 @@ impl TuiTone {
     pub fn label(self) -> &'static str {
         match self {
             Self::Healthy => "healthy",
+            Self::Preparing => "preparing",
             Self::Attention => "attention",
             Self::Limited => "limited",
         }
@@ -52,6 +54,7 @@ impl TuiTone {
     pub fn from_status_label(level: &str) -> Self {
         match level {
             "healthy" => Self::Healthy,
+            "preparing" => Self::Preparing,
             "limited" => Self::Limited,
             _ => Self::Attention,
         }
@@ -64,6 +67,18 @@ impl From<StatusLevel> for TuiTone {
             StatusLevel::Healthy => Self::Healthy,
             StatusLevel::Attention => Self::Attention,
             StatusLevel::Limited => Self::Limited,
+        }
+    }
+}
+
+impl From<crate::surface::style::Verdict> for TuiTone {
+    fn from(verdict: crate::surface::style::Verdict) -> Self {
+        use crate::surface::style::Verdict;
+        match verdict {
+            Verdict::Ready => Self::Healthy,
+            Verdict::Preparing => Self::Preparing,
+            Verdict::NeedsYou => Self::Attention,
+            Verdict::Limited => Self::Limited,
         }
     }
 }
@@ -109,6 +124,14 @@ impl TuiModel {
             selected: 0,
             confirming: None,
         }
+    }
+
+    /// Override the tone/label with a richer verdict (adds the calm Preparing
+    /// state that a bare status level cannot express).
+    pub fn with_verdict(mut self, verdict: crate::surface::style::Verdict) -> Self {
+        self.tone = TuiTone::from(verdict);
+        self.status = verdict.word().to_lowercase();
+        self
     }
 
     pub fn from_resolve(
@@ -224,7 +247,7 @@ mod tests {
             },
             actions: vec![SafeAction {
                 label: "Inspect status".to_string(),
-                command: Some("bowline status".to_string()),
+                command: Some("bowline status --root ~/Code".to_string()),
             }],
             non_actions: Vec::new(),
         }
@@ -233,8 +256,8 @@ mod tests {
     #[test]
     fn mutating_trust_and_recovery_commands_require_confirmation() {
         for command in [
-            "bowline approve req_1",
-            "bowline revoke dev_1",
+            "bowline approve --root ~/Code --request req_1",
+            "bowline revoke --root ~/Code --device dev_1",
             "bowline recover create",
             "bowline recover verify rk_1",
             "bowline recover rotate",
@@ -253,7 +276,7 @@ mod tests {
             assert!(mutates(Some(command)), "{command}");
         }
 
-        assert!(!mutates(Some("bowline status")));
+        assert!(!mutates(Some("bowline status --root ~/Code")));
         assert!(!mutates(Some("bowline recover status")));
     }
 
@@ -296,12 +319,12 @@ mod tests {
     fn action_detail_labels_match_confirmation_behavior() {
         let inspect = super::TuiAction {
             label: "Inspect status".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some("bowline status --root ~/Code".to_string()),
             mutates: false,
         };
         let change = super::TuiAction {
             label: "Approve device".to_string(),
-            command: Some("bowline approve req_1".to_string()),
+            command: Some("bowline approve --root ~/Code --request req_1".to_string()),
             mutates: true,
         };
 

@@ -5,26 +5,31 @@ use bowline_core::{
         DeviceApprovalRequestState, DeviceFingerprint, DeviceRecord, DeviceTrustState,
         RecoveryKeyState, RevokedDevice,
     },
-    ids::{DeviceApprovalRequestId, DeviceId},
+    ids::{DeviceApprovalRequestId, DeviceId, WorkspaceId},
     status::SafeAction,
 };
 use bowline_local::trust::{self, ApproveDeviceOptions, DeviceRequestOptions, grants};
 
-use crate::runtime;
+use crate::{TrustRequestSelector, WorkspaceSelection, resolve_explicit_path, runtime};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DevicesArgs {
-    List,
-    Request { root: Option<String> },
-    Approve { request_id: String },
-    Accept { request_id: String },
-    Deny { request_id: String },
-    Revoke { device_id: String },
+    List {
+        selection: WorkspaceSelection,
+    },
+    Request {
+        selection: WorkspaceSelection,
+    },
+    Accept {
+        selection: WorkspaceSelection,
+        request_id: String,
+    },
 }
 
-pub fn pending_requests() -> Result<Vec<bowline_core::devices::DeviceApprovalRequest>, String> {
+pub fn pending_requests(
+    workspace_id: &WorkspaceId,
+) -> Result<Vec<bowline_core::devices::DeviceApprovalRequest>, String> {
     let control_plane = runtime::control_plane()?;
-    let workspace_id = runtime::active_workspace_id();
     let trust = control_plane
         .list_device_trust(workspace_id.as_str())
         .map_err(|error| error.to_string())?;
@@ -40,10 +45,36 @@ fn request_is_awaiting_approval(state: DeviceApprovalRequestState) -> bool {
     matches!(state, DeviceApprovalRequestState::Pending)
 }
 
-pub fn approve(request_id: String, generated_at: String) -> Result<DevicesCommandOutput, String> {
+pub fn request_id_for_selector(
+    workspace_id: &WorkspaceId,
+    selector: &TrustRequestSelector,
+) -> Result<String, String> {
+    match selector {
+        TrustRequestSelector::Request(request_id) => Ok(request_id.clone()),
+        TrustRequestSelector::Code(code) => {
+            let matches = pending_requests(workspace_id)?
+                .into_iter()
+                .filter(|request| request.matching_code == *code)
+                .collect::<Vec<_>>();
+            match matches.as_slice() {
+                [request] => Ok(request.request_id.as_str().to_string()),
+                [] => Err("No pending device request matches that code.".to_string()),
+                _ => Err(
+                    "Multiple pending device requests match that code; use --request <id>."
+                        .to_string(),
+                ),
+            }
+        }
+    }
+}
+
+pub fn approve(
+    workspace_id: WorkspaceId,
+    request_id: String,
+    generated_at: String,
+) -> Result<DevicesCommandOutput, String> {
     let control_plane = runtime::control_plane()?;
     let key_store = runtime::key_store()?;
-    let workspace_id = runtime::active_workspace_id();
     trust::approve_device_request(
         &*control_plane,
         &*key_store,
@@ -57,13 +88,117 @@ pub fn approve(request_id: String, generated_at: String) -> Result<DevicesComman
     .map_err(|error| error.to_string())
 }
 
+pub fn deny(
+    workspace_id: WorkspaceId,
+    request_id: String,
+    generated_at: String,
+) -> Result<DevicesCommandOutput, String> {
+    let control_plane = runtime::control_plane()?;
+    let key_store = runtime::key_store()?;
+    let local_device_id = runtime::daemon_device_id(&workspace_id);
+    let identity = key_store
+        .load_or_create_device_identity()
+        .map_err(|error| error.to_string())?;
+    let denied_by_device_proof = grants::device_authorization_proof(
+        &identity,
+        &workspace_id,
+        &local_device_id,
+        "deny-device-request",
+        &request_id,
+    );
+    let denial = control_plane
+        .deny_device_request(DeviceDenialInput {
+            request_id: request_id.clone(),
+            denied_by_device_id: local_device_id.as_str().to_string(),
+            denied_by_device_proof,
+            reason: "denied by bowline deny".to_string(),
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(DevicesCommandOutput {
+        contract_version: CONTRACT_VERSION,
+        command: bowline_core::commands::CommandName::Deny,
+        generated_at,
+        action: DeviceCommandAction::Deny,
+        workspace_id: Some(workspace_id),
+        local_device: None,
+        devices: Vec::new(),
+        revoked_devices: Vec::new(),
+        pending_requests: Vec::new(),
+        created_request: None,
+        approved_device: None,
+        denied_request: None,
+        revoked_device: None,
+        recovery_key: Some(RecoveryKeyState::missing()),
+        next_actions: vec![SafeAction {
+            label: format!("Denied request {}", denial.request_id),
+            command: None,
+        }],
+    })
+}
+
+pub fn revoke(
+    workspace_id: WorkspaceId,
+    device_id: String,
+    generated_at: String,
+) -> Result<DevicesCommandOutput, String> {
+    let control_plane = runtime::control_plane()?;
+    let key_store = runtime::key_store()?;
+    let local_device_id = runtime::daemon_device_id(&workspace_id);
+    let identity = key_store
+        .load_or_create_device_identity()
+        .map_err(|error| error.to_string())?;
+    let revoked_by_device_proof = grants::device_authorization_proof(
+        &identity,
+        &workspace_id,
+        &local_device_id,
+        "revoke-device",
+        &device_id,
+    );
+    let revoked = control_plane
+        .revoke_device(DeviceRevocationInput {
+            workspace_id: workspace_id.as_str().to_string(),
+            device_id,
+            revoked_by_device_id: local_device_id.as_str().to_string(),
+            revoked_by_device_proof,
+            reason: "revoked by bowline revoke".to_string(),
+        })
+        .map_err(|error| error.to_string())?;
+    let revoked_device = RevokedDevice {
+        id: DeviceId::new(revoked.device_id),
+        name: revoked.device_name,
+        workspace_id: workspace_id.clone(),
+        platform: platform_from_str(&revoked.platform),
+        device_fingerprint: DeviceFingerprint::new(revoked.device_fingerprint),
+        revoked_at: revoked.revoked_at.to_string(),
+        revoked_by_device_id: DeviceId::new(revoked.revoked_by_device_id),
+        reason: revoked.reason,
+    };
+    Ok(DevicesCommandOutput {
+        contract_version: CONTRACT_VERSION,
+        command: bowline_core::commands::CommandName::Revoke,
+        generated_at,
+        action: DeviceCommandAction::Revoke,
+        workspace_id: Some(workspace_id),
+        local_device: None,
+        devices: Vec::new(),
+        revoked_devices: vec![revoked_device.clone()],
+        pending_requests: Vec::new(),
+        created_request: None,
+        approved_device: None,
+        denied_request: None,
+        revoked_device: Some(revoked_device),
+        recovery_key: Some(RecoveryKeyState::missing()),
+        next_actions: Vec::new(),
+    })
+}
+
 pub fn run(args: DevicesArgs, generated_at: String) -> Result<DevicesCommandOutput, String> {
     let control_plane = runtime::control_plane()?;
     let key_store = runtime::key_store()?;
-    let workspace_id = runtime::active_workspace_id();
 
     match args {
-        DevicesArgs::List => {
+        DevicesArgs::List { selection } => {
+            let workspace_id = workspace_id_for_selection(&selection)?;
             let local_device_id = runtime::daemon_device_id(&workspace_id);
             let trust = control_plane
                 .list_device_trust(workspace_id.as_str())
@@ -118,7 +253,8 @@ pub fn run(args: DevicesArgs, generated_at: String) -> Result<DevicesCommandOutp
                 next_actions: Vec::new(),
             })
         }
-        DevicesArgs::Request { root } => {
+        DevicesArgs::Request { selection } => {
+            let workspace_id = workspace_id_for_selection(&selection)?;
             let request = trust::create_device_request(
                 &*control_plane,
                 &*key_store,
@@ -128,15 +264,18 @@ pub fn run(args: DevicesArgs, generated_at: String) -> Result<DevicesCommandOutp
                     device_name: runtime::device_name(),
                     platform: runtime::platform(),
                     host: None,
-                    root: Some(root.unwrap_or_else(|| "~/Code".to_string())),
+                    root: Some(selection.root),
                     generated_at: generated_at.clone(),
                 },
             )
             .map_err(|error| error.to_string())?;
             Ok(trust::devices_output_for_request(generated_at, request))
         }
-        DevicesArgs::Approve { request_id } => approve(request_id, generated_at),
-        DevicesArgs::Accept { request_id } => {
+        DevicesArgs::Accept {
+            selection,
+            request_id,
+        } => {
+            let workspace_id = workspace_id_for_selection(&selection)?;
             let grant = trust::accept_device_grant(
                 &*control_plane,
                 &*key_store,
@@ -178,97 +317,11 @@ pub fn run(args: DevicesArgs, generated_at: String) -> Result<DevicesCommandOutp
                 next_actions: Vec::new(),
             })
         }
-        DevicesArgs::Deny { request_id } => {
-            let local_device_id = runtime::daemon_device_id(&workspace_id);
-            let identity = key_store
-                .load_or_create_device_identity()
-                .map_err(|error| error.to_string())?;
-            let denied_by_device_proof = grants::device_authorization_proof(
-                &identity,
-                &workspace_id,
-                &local_device_id,
-                "deny-device-request",
-                &request_id,
-            );
-            let denial = control_plane
-                .deny_device_request(DeviceDenialInput {
-                    request_id: request_id.clone(),
-                    denied_by_device_id: local_device_id.as_str().to_string(),
-                    denied_by_device_proof,
-                    reason: "denied by internal device trust command".to_string(),
-                })
-                .map_err(|error| error.to_string())?;
-            Ok(DevicesCommandOutput {
-                contract_version: CONTRACT_VERSION,
-                command: bowline_core::commands::CommandName::Devices,
-                generated_at,
-                action: DeviceCommandAction::Deny,
-                workspace_id: Some(workspace_id),
-                local_device: None,
-                devices: Vec::new(),
-                revoked_devices: Vec::new(),
-                pending_requests: Vec::new(),
-                created_request: None,
-                approved_device: None,
-                denied_request: None,
-                revoked_device: None,
-                recovery_key: Some(RecoveryKeyState::missing()),
-                next_actions: vec![SafeAction {
-                    label: format!("Denied request {}", denial.request_id),
-                    command: None,
-                }],
-            })
-        }
-        DevicesArgs::Revoke { device_id } => {
-            let local_device_id = runtime::daemon_device_id(&workspace_id);
-            let identity = key_store
-                .load_or_create_device_identity()
-                .map_err(|error| error.to_string())?;
-            let revoked_by_device_proof = grants::device_authorization_proof(
-                &identity,
-                &workspace_id,
-                &local_device_id,
-                "revoke-device",
-                &device_id,
-            );
-            let revoked = control_plane
-                .revoke_device(DeviceRevocationInput {
-                    workspace_id: workspace_id.as_str().to_string(),
-                    device_id,
-                    revoked_by_device_id: local_device_id.as_str().to_string(),
-                    revoked_by_device_proof,
-                    reason: "revoked by bowline revoke".to_string(),
-                })
-                .map_err(|error| error.to_string())?;
-            let revoked_device = RevokedDevice {
-                id: DeviceId::new(revoked.device_id),
-                name: revoked.device_name,
-                workspace_id: workspace_id.clone(),
-                platform: platform_from_str(&revoked.platform),
-                device_fingerprint: DeviceFingerprint::new(revoked.device_fingerprint),
-                revoked_at: revoked.revoked_at.to_string(),
-                revoked_by_device_id: DeviceId::new(revoked.revoked_by_device_id),
-                reason: revoked.reason,
-            };
-            Ok(DevicesCommandOutput {
-                contract_version: CONTRACT_VERSION,
-                command: bowline_core::commands::CommandName::Devices,
-                generated_at,
-                action: DeviceCommandAction::Revoke,
-                workspace_id: Some(workspace_id),
-                local_device: None,
-                devices: Vec::new(),
-                revoked_devices: vec![revoked_device.clone()],
-                pending_requests: Vec::new(),
-                created_request: None,
-                approved_device: None,
-                denied_request: None,
-                revoked_device: Some(revoked_device),
-                recovery_key: Some(RecoveryKeyState::missing()),
-                next_actions: Vec::new(),
-            })
-        }
     }
+}
+
+fn workspace_id_for_selection(selection: &WorkspaceSelection) -> Result<WorkspaceId, String> {
+    runtime::workspace_id_for_root(&resolve_explicit_path(selection.root.clone()))
 }
 
 fn local_request(
@@ -316,7 +369,7 @@ fn platform_from_str(value: &str) -> bowline_core::devices::DevicePlatform {
 mod tests {
     use bowline_core::devices::DeviceApprovalRequestState;
 
-    use super::request_is_awaiting_approval;
+    use super::*;
 
     #[test]
     fn only_pending_device_requests_are_awaiting_approval() {

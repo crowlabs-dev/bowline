@@ -95,7 +95,10 @@ pub fn initialize_root_with_workspace(
         ],
         next_actions: vec![SafeAction {
             label: "Inspect observed workspace".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some(format!(
+                "bowline status --root {}",
+                shell_word(&display_path(&root))
+            )),
         }],
     })
 }
@@ -461,6 +464,37 @@ fn display_path(path: &Path) -> String {
     } else {
         format!("~/{}", relative.display())
     }
+}
+
+fn shell_word(value: &str) -> String {
+    if value == "~" {
+        return "~".to_string();
+    }
+    if let Some(rest) = value.strip_prefix("~/") {
+        if rest.is_empty() {
+            return "~/".to_string();
+        }
+        if shell_safe_word(rest) {
+            return format!("~/{rest}");
+        }
+        return format!("~/{}", shell_quote(rest));
+    }
+    if shell_safe_word(value) {
+        return value.to_string();
+    }
+    shell_quote(value)
+}
+
+fn shell_safe_word(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '/' | '.' | '_' | '-' | ':' | '=' | '+' | '@' | '%')
+        })
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r#"'"'"'"#))
 }
 
 #[cfg(test)]

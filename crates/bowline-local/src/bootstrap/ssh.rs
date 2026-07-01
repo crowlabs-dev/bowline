@@ -54,7 +54,14 @@ pub fn list_remote_devices<R>(
 where
     R: ProcessRunner,
 {
-    let output = run_remote_bowline(runner, options, "devices list --json")?;
+    let output = run_remote_bowline(
+        runner,
+        options,
+        &format!(
+            "devices --root {} --json",
+            remote_shell_path(options.root.as_str())
+        ),
+    )?;
     Ok(RemoteBootstrapProbe {
         stdout: output.stdout,
         stderr: output.stderr,
@@ -88,7 +95,11 @@ where
     let output = run_remote_bowline(
         runner,
         options,
-        &format!("devices accept {} --json", shell_quote(request_id)),
+        &format!(
+            "devices accept --root {} --request {} --json",
+            remote_shell_path(&options.root),
+            shell_quote(request_id)
+        ),
     )?;
     Ok(RemoteBootstrapProbe {
         stdout: output.stdout,
@@ -106,7 +117,10 @@ where
     let output = run_remote_bowline(
         runner,
         options,
-        &format!("init {} --json", remote_shell_path(options.root.as_str())),
+        &format!(
+            "init --root {} --json",
+            remote_shell_path(options.root.as_str())
+        ),
     )?;
     Ok(RemoteBootstrapProbe {
         stdout: output.stdout,
@@ -178,7 +192,10 @@ where
     let output = run_remote_bowline(
         runner,
         options,
-        &format!("status {} --json", remote_shell_path(options.root.as_str())),
+        &format!(
+            "status --root {} --json",
+            remote_shell_path(options.root.as_str())
+        ),
     )?;
     Ok(RemoteBootstrapProbe {
         stdout: output.stdout,

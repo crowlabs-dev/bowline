@@ -1,61 +1,74 @@
 use super::*;
 
 pub(super) fn parse_devices_command(args: &[String]) -> Command {
-    match args {
-        [] => Command::Devices(devices::DevicesArgs::List),
-        [subcommand] if subcommand == "list" => Command::Devices(devices::DevicesArgs::List),
-        [subcommand] if subcommand == "request" => {
-            Command::Devices(devices::DevicesArgs::Request { root: None })
+    let mut index = 0_usize;
+    let mut subcommand = "list";
+    if args.first().is_some_and(|value| !value.starts_with("--")) {
+        subcommand = args[0].as_str();
+        index = 1;
+    }
+
+    let mut selection = ParsedSelection::default();
+    let mut request_id = None;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Devices, "devices", "--root");
+                };
+                selection.root = Some(value.clone());
+                index += 2;
+            }
+            "--project" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Devices, "devices", "--project");
+                };
+                selection.project = Some(value.clone());
+                index += 2;
+            }
+            "--request" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Devices, "devices", "--request");
+                };
+                request_id = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--") => {
+                return unknown_option(CommandName::Devices, "devices", flag);
+            }
+            value => return unexpected_argument(CommandName::Devices, "devices", value),
         }
-        [subcommand, flag, root] if subcommand == "request" && flag == "--root" => {
-            Command::Devices(devices::DevicesArgs::Request {
-                root: Some(root.to_string()),
-            })
-        }
-        [subcommand, flag] if subcommand == "request" && flag == "--root" => command_usage_error(
-            CommandName::Devices,
-            "usage_error",
-            "bowline login --root requires a path".to_string(),
-            devices_usage_actions(),
-        ),
-        [subcommand, flag, ..] if subcommand == "request" && flag.starts_with("--") => {
-            command_usage_error(
+    }
+
+    let Some(selection) = selection.finish(CommandName::Devices, "devices") else {
+        return missing_root(CommandName::Devices, "devices");
+    };
+
+    match subcommand {
+        "list" => Command::Devices(devices::DevicesArgs::List { selection }),
+        "request" => Command::Devices(devices::DevicesArgs::Request { selection }),
+        "accept" => match request_id {
+            Some(request_id) => Command::Devices(devices::DevicesArgs::Accept {
+                selection,
+                request_id,
+            }),
+            None => command_usage_error(
                 CommandName::Devices,
                 "usage_error",
-                format!("unknown bowline login option `{flag}`"),
+                "bowline devices accept requires --request <id>".to_string(),
                 devices_usage_actions(),
-            )
-        }
-        [subcommand, request_id] if subcommand == "approve" => {
-            Command::Devices(devices::DevicesArgs::Approve {
-                request_id: request_id.to_string(),
-            })
-        }
-        [subcommand, request_id] if subcommand == "accept" => {
-            Command::Devices(devices::DevicesArgs::Accept {
-                request_id: request_id.to_string(),
-            })
-        }
-        [subcommand, request_id] if subcommand == "deny" => {
-            Command::Devices(devices::DevicesArgs::Deny {
-                request_id: request_id.to_string(),
-            })
-        }
-        [subcommand, device_id] if subcommand == "revoke" => {
-            Command::Devices(devices::DevicesArgs::Revoke {
-                device_id: device_id.to_string(),
-            })
-        }
-        [flag, ..] if flag.starts_with("--") => command_usage_error(
+            ),
+        },
+        "approve" | "deny" | "revoke" => command_usage_error(
             CommandName::Devices,
             "usage_error",
-            format!("unknown bowline trust option `{flag}`"),
+            format!("bowline devices {subcommand} is not a public command; use top-level `{subcommand}`"),
             devices_usage_actions(),
         ),
         _ => command_usage_error(
             CommandName::Devices,
             "usage_error",
-            "expected `bowline approve [request]`, `bowline revoke <device>`, or `bowline login --root <path>`"
+            "expected `bowline devices --root <path>`, `bowline devices request --root <path>`, or `bowline devices accept --root <path> --request <id>`"
                 .to_string(),
             devices_usage_actions(),
         ),
@@ -115,16 +128,28 @@ pub(super) fn parse_recovery_command(args: &[String]) -> Command {
 }
 
 pub(super) fn parse_events_command(args: &[String]) -> Command {
-    let mut workspace = false;
     let mut limit = 50;
-    let mut path = None;
-    let mut iter = args.iter();
+    let mut selection = ParsedSelection::default();
+    let mut index = 0_usize;
 
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--workspace" => workspace = true,
+    while index < args.len() {
+        match args[index].as_str() {
+            "--root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Events, "events", "--root");
+                };
+                selection.root = Some(value.clone());
+                index += 2;
+            }
+            "--project" => {
+                let Some(value) = args.get(index + 1) else {
+                    return missing_value(CommandName::Events, "events", "--project");
+                };
+                selection.project = Some(value.clone());
+                index += 2;
+            }
             "--limit" => {
-                let Some(raw_limit) = iter.next() else {
+                let Some(raw_limit) = args.get(index + 1) else {
                     return usage_error(CommandName::Events, "missing value for --limit");
                 };
                 match raw_limit.parse::<u32>() {
@@ -143,28 +168,19 @@ pub(super) fn parse_events_command(args: &[String]) -> Command {
                         );
                     }
                 }
+                index += 2;
             }
             flag if flag.starts_with("--") => {
-                return usage_error(
-                    CommandName::Events,
-                    format!("unknown bowline status --watch option `{flag}`"),
-                );
+                return unknown_option(CommandName::Events, "events", flag);
             }
-            value if path.is_none() => path = Some(value.to_string()),
-            _ => {
-                return usage_error(
-                    CommandName::Events,
-                    "bowline status --watch accepts at most one path",
-                );
-            }
+            value => return unexpected_argument(CommandName::Events, "events", value),
         }
     }
+    let Some(selection) = selection.finish(CommandName::Events, "events") else {
+        return missing_root(CommandName::Events, "events");
+    };
 
-    Command::Events(EventsArgs {
-        path,
-        workspace,
-        limit,
-    })
+    Command::Events(EventsArgs { selection, limit })
 }
 
 pub(super) fn parse_workon_command(args: &[String]) -> Command {

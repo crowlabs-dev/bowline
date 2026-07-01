@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="${BOWLINE_RELEASE_REPO:-bowline-sh/bowline}"
+RELEASE_HOST="${BOWLINE_RELEASE_HOST:-https://install.bowline.sh}"
 VERSION="latest"
 CLI_ONLY="0"
 INSTALL_DIR="${BOWLINE_INSTALL_DIR:-$HOME/.local/bin}"
@@ -74,19 +74,7 @@ case "$UNAME_S:$UNAME_M" in
     TARGET="x86_64-unknown-linux-gnu"
     ;;
   *)
-    fail "unsupported platform $UNAME_S/$UNAME_M; see https://github.com/$REPO/releases"
-    ;;
-esac
-
-case "$VERSION" in
-  latest)
-    RELEASE_BASE="https://github.com/$REPO/releases/latest/download"
-    ;;
-  v*)
-    RELEASE_BASE="https://github.com/$REPO/releases/download/$VERSION"
-    ;;
-  *)
-    RELEASE_BASE="https://github.com/$REPO/releases/download/v$VERSION"
+    fail "unsupported platform $UNAME_S/$UNAME_M; see $RELEASE_HOST"
     ;;
 esac
 
@@ -101,6 +89,29 @@ download() {
   dest="$2"
   note "download $(basename "$dest")"
   curl -fL --retry 3 --retry-delay 1 -o "$dest" "$url"
+}
+
+resolve_release_base() {
+  case "$VERSION" in
+    latest)
+      manifest="$TMPDIR/release-manifest.json"
+      download "$RELEASE_HOST/release-manifest.json" "$manifest"
+      resolved_version="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$manifest" | awk 'NR == 1 { print }')"
+      [ -n "$resolved_version" ] || fail "release manifest is missing version"
+      echo "$resolved_version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$' ||
+        fail "release manifest version is invalid: $resolved_version"
+      case "$resolved_version" in
+        v*) RELEASE_BASE="$RELEASE_HOST/releases/$resolved_version" ;;
+        *) RELEASE_BASE="$RELEASE_HOST/releases/v$resolved_version" ;;
+      esac
+      ;;
+    v*)
+      RELEASE_BASE="$RELEASE_HOST/releases/$VERSION"
+      ;;
+    *)
+      RELEASE_BASE="$RELEASE_HOST/releases/v$VERSION"
+      ;;
+  esac
 }
 
 sha256() {
@@ -156,6 +167,7 @@ install_daemon() {
   fi
 }
 
+resolve_release_base
 download "$RELEASE_BASE/checksums.txt" "$TMPDIR/checksums.txt"
 
 if [ "$PLATFORM" = "macos" ] && [ "$CLI_ONLY" = "0" ]; then

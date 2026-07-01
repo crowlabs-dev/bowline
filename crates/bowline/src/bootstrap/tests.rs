@@ -238,6 +238,7 @@ fn bootstrap_output_marks_sync_blocked_when_bootstrap_did_not_complete() {
         BootstrapOutputBase {
             host: "linux-box".to_string(),
             root: "~/Code".to_string(),
+            local_root: Some("~/Code".to_string()),
             generated_at: "2026-06-24T12:00:00Z".to_string(),
             steps: vec![step(
                 "install",
@@ -270,6 +271,7 @@ fn bootstrap_output_keeps_trust_separate_from_sync_status() {
         BootstrapOutputBase {
             host: "linux-box".to_string(),
             root: "~/Code".to_string(),
+            local_root: Some("~/Code".to_string()),
             generated_at: "2026-06-24T12:00:00Z".to_string(),
             steps: vec![step(
                 "sync",
@@ -298,7 +300,7 @@ fn bootstrap_output_keeps_trust_separate_from_sync_status() {
     assert!(output.next_actions.iter().any(|action| {
         action.label == "Inspect remote status"
             && action.command.as_deref()
-                == Some(ssh_command("linux-box", "bowline status ~/Code --json").as_str())
+                == Some(ssh_command("linux-box", "bowline status --root ~/Code --json").as_str())
     }));
 }
 
@@ -308,6 +310,7 @@ fn bootstrap_output_returns_agent_handoff_actions_when_ready() {
         BootstrapOutputBase {
             host: "linux-box".to_string(),
             root: "~/Code".to_string(),
+            local_root: Some("~/Code".to_string()),
             generated_at: "2026-06-24T12:00:00Z".to_string(),
             steps: vec![step("sync", BootstrapStepState::Completed, "sync ready")],
             agent_handoff: None,
@@ -322,12 +325,12 @@ fn bootstrap_output_returns_agent_handoff_actions_when_ready() {
     assert!(output.next_actions.iter().any(|action| {
         action.label == "Inspect remote status"
             && action.command.as_deref()
-                == Some(ssh_command("linux-box", "bowline status ~/Code --json").as_str())
+                == Some(ssh_command("linux-box", "bowline status --root ~/Code --json").as_str())
     }));
     assert!(output.next_actions.iter().any(|action| {
         action.label == "Inspect remote next actions"
             && action.command.as_deref()
-                == Some(ssh_command("linux-box", "bowline status ~/Code --json").as_str())
+                == Some(ssh_command("linux-box", "bowline status --root ~/Code --json").as_str())
     }));
     assert!(output.next_actions.iter().any(|action| {
             action.label == "Start agent work in a project"
@@ -345,6 +348,7 @@ fn blocked_remote_agent_handoff_points_at_conflict_resolution() {
         BootstrapOutputBase {
             host: "linux-box".to_string(),
             root: "~/Code".to_string(),
+            local_root: Some("~/Code".to_string()),
             generated_at: "2026-06-24T12:00:00Z".to_string(),
             steps: vec![step(
                 "agent-lease",
@@ -394,6 +398,7 @@ fn bootstrap_output_returns_local_approval_recovery_action() {
         BootstrapOutputBase {
             host: "linux box".to_string(),
             root: "/workspace/user/Code Projects".to_string(),
+            local_root: Some("~/Code".to_string()),
             generated_at: "2026-06-24T12:00:00Z".to_string(),
             steps: vec![step(
                 "approve",
@@ -411,7 +416,7 @@ fn bootstrap_output_returns_local_approval_recovery_action() {
     assert_eq!(output.sync, BootstrapSyncState::Blocked);
     assert!(output.next_actions.iter().any(|action| {
         action.label == "Inspect local device requests"
-            && action.command.as_deref() == Some("bowline status --json")
+            && action.command.as_deref() == Some("bowline status --root ~/Code --json")
     }));
     assert!(output.next_actions.iter().any(|action| {
         action.label == "Retry remote bootstrap"

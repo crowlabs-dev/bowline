@@ -182,6 +182,80 @@ impl MetadataStore {
             .map_err(Into::into)
     }
 
+    pub fn workspace_by_accepted_root(
+        &self,
+        root_path: &str,
+    ) -> Result<Option<WorkspaceRecord>, MetadataError> {
+        let requested = normalize_path_for_matching(root_path);
+        let mut statement = self.connection.prepare(
+            "SELECT workspaces.id, workspaces.display_name, roots.accepted_path
+             FROM roots
+             JOIN workspaces ON workspaces.id = roots.workspace_id
+             WHERE roots.state = 'accepted'",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                WorkspaceRecord {
+                    id: WorkspaceId::new(row.get::<_, String>(0)?),
+                    display_name: row.get(1)?,
+                },
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (workspace, accepted_path) = row?;
+            if normalize_path_for_matching(&accepted_path) == requested {
+                return Ok(Some(workspace));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn workspace_by_path(&self, path: &str) -> Result<Option<WorkspaceRecord>, MetadataError> {
+        let requested = normalize_path_for_matching(path);
+        let mut statement = self.connection.prepare(
+            "SELECT workspaces.id, workspaces.display_name, roots.accepted_path
+             FROM roots
+             JOIN workspaces ON workspaces.id = roots.workspace_id
+             WHERE roots.state = 'accepted'
+             ORDER BY length(roots.accepted_path) DESC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                WorkspaceRecord {
+                    id: WorkspaceId::new(row.get::<_, String>(0)?),
+                    display_name: row.get(1)?,
+                },
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (workspace, accepted_path) = row?;
+            let root = normalize_path_for_matching(&accepted_path);
+            if strip_root_prefix(&requested, &root).is_some() {
+                return Ok(Some(workspace));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn workspace_root(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<String>, MetadataError> {
+        self.connection
+            .query_row(
+                "SELECT accepted_path FROM roots
+                 WHERE workspace_id = ?1 AND state = 'accepted'
+                 ORDER BY created_at, id
+                 LIMIT 1",
+                [workspace_id.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     pub fn current_project_by_path(
         &self,
         path: &str,
@@ -189,7 +263,15 @@ impl MetadataStore {
         let Some(workspace) = self.current_workspace()? else {
             return Ok(None);
         };
-        let path = self.workspace_relative_path(&workspace.id, path)?;
+        self.project_by_path(&workspace.id, path)
+    }
+
+    pub fn project_by_path(
+        &self,
+        workspace_id: &WorkspaceId,
+        path: &str,
+    ) -> Result<Option<ProjectRecord>, MetadataError> {
+        let path = self.workspace_relative_path(workspace_id, path)?;
 
         for candidate in project_path_candidates(&path) {
             let project = self
@@ -198,7 +280,7 @@ impl MetadataStore {
                     "SELECT id, path FROM projects
                      WHERE workspace_id = ?1 AND path = ?2
                      LIMIT 1",
-                    params![workspace.id.as_str(), candidate],
+                    params![workspace_id.as_str(), candidate],
                     |row| {
                         Ok(ProjectRecord {
                             id: ProjectId::new(row.get::<_, String>(0)?),
@@ -279,17 +361,7 @@ impl MetadataStore {
             return Ok(None);
         };
 
-        self.connection
-            .query_row(
-                "SELECT accepted_path FROM roots
-                 WHERE workspace_id = ?1 AND state = 'accepted'
-                 ORDER BY created_at, id
-                 LIMIT 1",
-                [workspace.id.as_str()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(Into::into)
+        self.workspace_root(&workspace.id)
     }
 
     pub fn projects(

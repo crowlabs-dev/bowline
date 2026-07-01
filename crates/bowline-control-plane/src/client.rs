@@ -43,7 +43,6 @@ pub trait WorkspaceControlPlaneClient {
     /// Publish a redacted live status snapshot for the workspace. In-memory and
     /// offline control planes treat this as a no-op; the hosted client forwards
     /// it to the `status:publishWorkspaceStatus` mutation.
-
     fn publish_workspace_status(
         &self,
         _snapshot: &WorkspaceStatusSnapshot,
@@ -374,7 +373,6 @@ pub trait ControlPlaneClient {
     /// Publish a redacted live status snapshot for the workspace. In-memory and
     /// offline control planes treat this as a no-op; the hosted client forwards
     /// it to the `status:publishWorkspaceStatus` mutation.
-
     fn publish_workspace_status(
         &self,
         _snapshot: &WorkspaceStatusSnapshot,

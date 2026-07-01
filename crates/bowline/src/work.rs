@@ -11,6 +11,8 @@ use bowline_local::work_views::{
     list_work_views, restore_work_view,
 };
 
+use crate::surface::style::{self, Presentation, Role};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkonArgs {
     pub project_path: String,
@@ -105,23 +107,31 @@ pub fn run_cleanup(
 }
 
 pub fn render_workon_human(output: &WorkonCommandOutput) -> String {
+    let pres = Presentation::detect(false);
     format!(
-        "Work view: {}\nPath: {}\nState: active\n\n",
-        output.work_view.name, output.work_view.visible_path
+        "{}  {}\n{}  {}\n{}  {}\n\n",
+        style::section("Work view", &pres),
+        style::paint(&output.work_view.name, Role::Strong, &pres),
+        style::section("Path", &pres),
+        output.work_view.visible_path,
+        style::section("State", &pres),
+        style::paint("active", Role::Ready, &pres),
     )
 }
 
 pub fn render_list_human(output: &WorkListCommandOutput) -> String {
-    let mut lines = vec![format!("Work views: {}", output.work_views.len())];
+    let pres = Presentation::detect(false);
+    let mut lines = vec![format!(
+        "{}  {}",
+        style::section("Work views", &pres),
+        output.work_views.len()
+    )];
     lines.extend(output.work_views.iter().map(|view| {
         format!(
             "  {}  {}  {}",
-            view.name,
-            view.visible_path,
-            serde_json::to_value(view.lifecycle)
-                .expect("lifecycle serializes")
-                .as_str()
-                .unwrap_or("unknown")
+            style::paint(&view.name, Role::Strong, &pres),
+            style::paint(&view.visible_path, Role::Label, &pres),
+            style::paint(&style::kebab(&view.lifecycle), Role::Label, &pres),
         )
     }));
     lines.push(String::new());
@@ -129,20 +139,28 @@ pub fn render_list_human(output: &WorkListCommandOutput) -> String {
 }
 
 pub fn render_diff_human(output: &WorkDiffCommandOutput) -> String {
-    let mut lines = vec![format!("Work view: {}", output.work_view.name)];
+    let pres = Presentation::detect(false);
+    let mut lines = vec![format!(
+        "{}  {}",
+        style::section("Work view", &pres),
+        style::paint(&output.work_view.name, Role::Strong, &pres)
+    )];
     if output.changes.is_empty() {
-        lines.push("No local changes recorded.".to_string());
+        lines.push(format!(
+            "  {}",
+            style::paint("No local changes recorded.", Role::Label, &pres)
+        ));
     } else {
         lines.extend(output.changes.iter().map(|change| {
+            let redacted = if change.contains_secrets {
+                style::paint("  (redacted)", Role::Label, &pres)
+            } else {
+                String::new()
+            };
             format!(
-                "  {:?} {}{}",
-                change.kind,
+                "  {} {}{redacted}",
+                style::paint(&style::kebab(&change.kind), Role::Label, &pres),
                 change.path,
-                if change.contains_secrets {
-                    " (redacted)"
-                } else {
-                    ""
-                }
             )
         }));
     }
@@ -151,19 +169,21 @@ pub fn render_diff_human(output: &WorkDiffCommandOutput) -> String {
 }
 
 pub fn render_lifecycle_human(output: &WorkLifecycleCommandOutput) -> String {
+    let pres = Presentation::detect(false);
     format!(
-        "Work view: {}\nState: {}\n\n",
-        output.work_view.name,
-        serde_json::to_value(output.work_view.lifecycle)
-            .expect("lifecycle serializes")
-            .as_str()
-            .unwrap_or("unknown")
+        "{}  {}\n{}  {}\n\n",
+        style::section("Work view", &pres),
+        style::paint(&output.work_view.name, Role::Strong, &pres),
+        style::section("State", &pres),
+        style::kebab(&output.work_view.lifecycle),
     )
 }
 
 pub fn render_cleanup_human(output: &WorkCleanupCommandOutput) -> String {
+    let pres = Presentation::detect(false);
     let mut lines = vec![format!(
-        "Cleanup candidates: {}",
+        "{}  {}",
+        style::section("Cleanup candidates", &pres),
         output.previewed_paths.len()
     )];
     if output.deleted_paths.is_empty() {
@@ -171,14 +191,14 @@ pub fn render_cleanup_human(output: &WorkCleanupCommandOutput) -> String {
             output
                 .previewed_paths
                 .iter()
-                .map(|path| format!("  {path}")),
+                .map(|path| format!("  {}", style::paint(path, Role::Label, &pres))),
         );
     } else {
         lines.extend(
             output
                 .deleted_paths
                 .iter()
-                .map(|path| format!("  deleted {path}")),
+                .map(|path| format!("  {} {path}", style::paint("deleted", Role::Limited, &pres))),
         );
     }
     lines.push(String::new());

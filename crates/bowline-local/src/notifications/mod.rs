@@ -64,10 +64,13 @@ pub fn pending_device_payloads(status: &StatusCommandOutput) -> Vec<Notification
                     .iter()
                     .find(|action| {
                         action.command.as_deref().is_some_and(|command| {
-                            command == "bowline approve"
-                                || command
-                                    .strip_prefix("bowline approve ")
-                                    .is_some_and(|request_id| request_id == subject.id)
+                            command.contains("bowline approve ")
+                                && command.contains("--request ")
+                                && command
+                                    .split_whitespace()
+                                    .collect::<Vec<_>>()
+                                    .windows(2)
+                                    .any(|pair| pair == ["--request", subject.id.as_str()])
                         })
                     })
                     .and_then(|action| action.command.clone())
@@ -209,7 +212,7 @@ mod tests {
         assert!(payloads[0].body.contains("maple-river-4821"));
         assert_eq!(
             payloads[0].action.as_deref(),
-            Some("bowline approve device-request:ws_code:dev-mac")
+            Some("bowline approve --root ~/Code --request device-request:ws_code:dev-mac")
         );
         assert!(!format!("{payloads:?}").contains("secret"));
     }
@@ -240,7 +243,10 @@ mod tests {
             0,
             bowline_core::status::SafeAction {
                 label: "Approve Linux-Vivobook".to_string(),
-                command: Some("bowline approve device-request:ws_code:linux-vivobook".to_string()),
+                command: Some(
+                    "bowline approve --root ~/Code --request device-request:ws_code:linux-vivobook"
+                        .to_string(),
+                ),
             },
         );
 
@@ -249,11 +255,11 @@ mod tests {
         assert_eq!(payloads.len(), 2);
         assert_eq!(
             payloads[0].action.as_deref(),
-            Some("bowline approve device-request:ws_code:dev-mac")
+            Some("bowline approve --root ~/Code --request device-request:ws_code:dev-mac")
         );
         assert_eq!(
             payloads[1].action.as_deref(),
-            Some("bowline approve device-request:ws_code:linux-vivobook")
+            Some("bowline approve --root ~/Code --request device-request:ws_code:linux-vivobook")
         );
     }
 
@@ -262,7 +268,10 @@ mod tests {
         let payload = NotificationPayload {
             title: "bowline device approval".to_string(),
             body: "Dev-Mac requested approval.".to_string(),
-            action: Some("bowline approve device-request:ws_code:dev-mac".to_string()),
+            action: Some(
+                "bowline approve --root ~/Code --request device-request:ws_code:dev-mac"
+                    .to_string(),
+            ),
         };
         let sender = RecordingSender::new();
         let mut dedupe = NotificationDedupe::default();
@@ -283,7 +292,10 @@ mod tests {
         let payload = NotificationPayload {
             title: "bowline device approval".to_string(),
             body: "Dev-Mac requested approval.".to_string(),
-            action: Some("bowline approve device-request:ws_code:dev-mac".to_string()),
+            action: Some(
+                "bowline approve --root ~/Code --request device-request:ws_code:dev-mac"
+                    .to_string(),
+            ),
         };
         let mut dedupe = NotificationDedupe::default();
 

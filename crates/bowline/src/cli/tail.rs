@@ -272,11 +272,11 @@ pub(super) fn devices_usage_actions() -> Vec<SafeAction> {
     vec![
         SafeAction {
             label: "Inspect workspace status".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some("bowline status --root ~/Code".to_string()),
         },
         SafeAction {
             label: "Approve a pending device".to_string(),
-            command: Some("bowline approve".to_string()),
+            command: Some("bowline approve --root ~/Code --request <id>".to_string()),
         },
     ]
 }
@@ -355,10 +355,12 @@ pub(crate) fn command_name_token(command: CommandName) -> &'static str {
         CommandName::Help => "help",
         CommandName::Version => "version",
         CommandName::Contract => "contract",
+        CommandName::Update => "update",
         CommandName::Unknown => "unknown",
         CommandName::Login => "login",
         CommandName::Logout => "logout",
         CommandName::Approve => "approve",
+        CommandName::Deny => "deny",
         CommandName::Revoke => "revoke",
         CommandName::Recover => "recover",
         CommandName::Init => "init",

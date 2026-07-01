@@ -34,6 +34,8 @@ pub enum CommandName {
     Version,
     #[serde(rename = "contract")]
     Contract,
+    #[serde(rename = "update")]
+    Update,
     #[serde(rename = "unknown")]
     Unknown,
     #[serde(rename = "login")]
@@ -42,6 +44,8 @@ pub enum CommandName {
     Logout,
     #[serde(rename = "approve")]
     Approve,
+    #[serde(rename = "deny")]
+    Deny,
     #[serde(rename = "revoke")]
     Revoke,
     #[serde(rename = "recover")]
@@ -197,6 +201,19 @@ pub struct VersionCommandOutput {
     pub protocol_version: u32,
     pub default_socket: String,
     pub package: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCommandOutput {
+    pub contract_version: u16,
+    pub ok: bool,
+    pub command: CommandName,
+    pub generated_at: String,
+    pub current_version: String,
+    pub latest_version: String,
+    pub update_available: bool,
+    pub update_command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

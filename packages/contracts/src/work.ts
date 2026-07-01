@@ -1,4 +1,10 @@
-import type { DeviceId, ProjectId, SnapshotId, WorkspaceId, WorkViewId } from "./ids";
+import type {
+  DeviceId,
+  ProjectId,
+  SnapshotId,
+  WorkspaceId,
+  WorkViewId,
+} from "./ids";
 import type { SafeAction, WorkspaceStatus } from "./status";
 import type { CommandOutputBase } from "./commands";
 

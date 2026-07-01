@@ -1,7 +1,22 @@
 import type { CommandOutputBase } from "./commands";
-import type { DeviceId, EventId, LeaseId, PolicyVersion, ProjectId, SnapshotId, WorkspaceId, WorkViewId } from "./ids";
+import type {
+  DeviceId,
+  EventId,
+  LeaseId,
+  PolicyVersion,
+  ProjectId,
+  SnapshotId,
+  WorkspaceId,
+  WorkViewId,
+} from "./ids";
 import type { PathClassification } from "./policy";
-import type { HydrationBudgetStatus, IndexStatus, SafeAction, StatusItem, WorkspaceStatus } from "./status";
+import type {
+  HydrationBudgetStatus,
+  IndexStatus,
+  SafeAction,
+  StatusItem,
+  WorkspaceStatus,
+} from "./status";
 
 export const AGENT_LEASE_EXECUTION_STATES = [
   "active",

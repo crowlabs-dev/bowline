@@ -14,9 +14,11 @@ pub(super) enum Command {
     Help(Option<Vec<String>>),
     Version,
     Contract,
+    Update(UpdateArgs),
     Login(login::LoginArgs),
     Logout,
     Approve(ApproveArgs),
+    Deny(ApproveArgs),
     Revoke(RevokeArgs),
     Init(InitArgs),
     Prewarm(PrewarmArgs),
@@ -48,7 +50,7 @@ pub(super) enum Command {
     BootstrapSsh(bootstrap::BootstrapSshArgs),
     DevCloudSpike(CloudSpikeArgs),
     Daemon(DaemonCommand),
-    DiagnosticsCollect,
+    DiagnosticsCollect(WorkspaceSelection),
     CommandUsageError(CommandUsageError),
     UsageError {
         command: CommandName,
@@ -67,17 +69,31 @@ pub(super) struct CommandUsageError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct InitArgs {
-    pub(super) root: Option<String>,
+    pub(super) root: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct WorkspaceSelection {
+    pub(super) root: String,
+    pub(super) project: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum TrustRequestSelector {
+    Request(String),
+    Code(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ApproveArgs {
-    pub(super) request_id: Option<String>,
+    pub(super) selection: WorkspaceSelection,
+    pub(super) selector: TrustRequestSelector,
     pub(super) yes: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RevokeArgs {
+    pub(super) selection: WorkspaceSelection,
     pub(super) device_id: String,
 }
 
@@ -95,20 +111,19 @@ pub(super) struct SetupArgs {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct StatusArgs {
-    pub(super) path: Option<String>,
+    pub(super) selection: WorkspaceSelection,
     pub(super) watch: bool,
-    pub(super) workspace: bool,
+    pub(super) include_all: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ActionsArgs {
-    pub(super) path: Option<String>,
-    pub(super) workspace: bool,
+    pub(super) selection: WorkspaceSelection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiArgs {
-    pub(super) path: Option<String>,
+    pub(super) selection: WorkspaceSelection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,8 +151,7 @@ pub(super) struct ExplainArgs {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EventsArgs {
-    pub(super) path: Option<String>,
-    pub(super) workspace: bool,
+    pub(super) selection: WorkspaceSelection,
     pub(super) limit: u32,
 }
 
@@ -179,6 +193,12 @@ pub(super) struct CloudSpikeSkipOutput {
     pub(super) missing_env: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct UpdateArgs {
+    pub(super) check: bool,
+    pub(super) version: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DaemonCommand {
     Start,
@@ -213,6 +233,13 @@ where
         match arg.as_str() {
             "--json" => json = true,
             "--dry-run" => dry_run = true,
+            "--version"
+                if positionals
+                    .first()
+                    .is_some_and(|command| command == "update") =>
+            {
+                positionals.push(arg)
+            }
             "--version" => version_requested = true,
             "--idempotency-key" => match iter.next() {
                 Some(key) => idempotency_key = Some(key),

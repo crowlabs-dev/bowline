@@ -33,7 +33,8 @@ documentation.
 The export does not make the public repo canonical, does not publish prerelease
 agent instructions, and does not imply self-hosting or open-ended contribution
 support. Runtime and package deployment channels such as Convex, Cloudflare,
-crates.io, Homebrew, npm, and app distribution remain separate release work.
+crates.io, npm, release assets, and app distribution remain separate release
+work.
 
 ## Use for plumbing
 

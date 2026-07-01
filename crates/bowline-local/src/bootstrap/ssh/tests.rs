@@ -4,8 +4,8 @@ use crate::bootstrap::{
     process::{ProcessError, ProcessOutput, ProcessRunner},
     ssh::{
         BootstrapSshError, BootstrapSshOptions, accept_remote_grant, create_remote_agent_lease,
-        daemon_status_remote, launch_remote_codex_agent, prepare_remote_root, probe_remote,
-        start_remote_daemon, status_remote,
+        daemon_status_remote, launch_remote_codex_agent, list_remote_devices, prepare_remote_root,
+        probe_remote, start_remote_daemon, status_remote,
     },
 };
 
@@ -106,6 +106,31 @@ fn remote_probe_prefixes_only_non_secret_bootstrap_environment() {
 }
 
 #[test]
+fn remote_device_list_uses_explicit_root() {
+    let args = Rc::new(RefCell::new(Vec::new()));
+    let stdin = Rc::new(RefCell::new(String::new()));
+    let runner = RecordingRunner {
+        args: args.clone(),
+        stdin,
+    };
+    let options = BootstrapSshOptions {
+        host: "linux-box".to_string(),
+        root: "~/Code".to_string(),
+        remote_binary: Some("~/.local/bin/bowline".to_string()),
+        remote_workspace_id: Some("ws_code".to_string()),
+        remote_env: Vec::new(),
+        remote_secret_env: Vec::new(),
+        bootstrap_token: None,
+    };
+
+    list_remote_devices(&runner, &options).expect("list succeeds");
+
+    let captured = args.borrow();
+    let remote_command = captured.last().expect("ssh command is recorded");
+    assert!(remote_command.contains("devices --root $HOME/'Code' --json"));
+}
+
+#[test]
 fn remote_accept_quotes_request_id_before_ssh_execution() {
     let args = Rc::new(RefCell::new(Vec::new()));
     let stdin = Rc::new(RefCell::new(String::new()));
@@ -127,8 +152,9 @@ fn remote_accept_quotes_request_id_before_ssh_execution() {
 
     let captured = args.borrow();
     let remote_command = captured.last().expect("ssh command is recorded");
-    assert!(remote_command.contains("devices accept 'req_1; touch /tmp/pwn' --json"));
-    assert!(!remote_command.contains("devices accept req_1;"));
+    assert!(remote_command.contains("devices accept --root "));
+    assert!(remote_command.contains("--request 'req_1; touch /tmp/pwn' --json"));
+    assert!(!remote_command.contains("--request req_1;"));
 }
 
 #[test]
@@ -186,7 +212,7 @@ fn remote_prepare_and_daemon_commands_use_installed_binary_and_root() {
     ));
     assert!(
         prepare_command
-            .contains("$HOME/'.local/bin/bowline' init $HOME/'Code/agent project' --json")
+            .contains("$HOME/'.local/bin/bowline' init --root $HOME/'Code/agent project' --json")
     );
     assert!(prepare_command.contains("BOWLINE_SECRET_STORE='server-local'"));
 
@@ -228,7 +254,7 @@ fn remote_status_uses_explicit_root_without_requiring_root_cwd() {
     assert!(!remote_command.starts_with("cd "));
     assert!(
         remote_command
-            .contains("$HOME/'.local/bin/bowline' status $HOME/'Code/new machine' --json")
+            .contains("$HOME/'.local/bin/bowline' status --root $HOME/'Code/new machine' --json")
     );
 }
 

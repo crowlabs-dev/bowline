@@ -12,7 +12,7 @@ fn help_groups_commands_by_intent() {
     );
     assert!(stdout.contains("Workspace:"));
     assert!(stdout.contains("bowline resolve [path] [--tui|--copy-prompt|--diff <conflict>]"));
-    assert!(stdout.contains("bowline tui [path]"));
+    assert!(stdout.contains("bowline tui --root <path> [--project <path>]"));
     assert!(stdout.contains("Trust:"));
     assert!(stdout.contains("Work:"));
     assert!(stdout.contains("Agent:"));
@@ -96,7 +96,7 @@ fn unknown_command_json_uses_command_error_output() {
 
 #[test]
 fn known_command_usage_errors_keep_command_name() {
-    let output = run_bowline(&["events", "--limit", "--json"]);
+    let output = run_bowline(&["events", "--root", "~/Code", "--limit", "--json"]);
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stderr.is_empty());
@@ -475,7 +475,7 @@ fn workon_dry_run_and_idempotency_are_replay_safe() {
 fn status_json_reports_missing_metadata_without_creating_db() {
     let db_path = unique_db("missing-status");
     let output = run_bowline_with_env(
-        &["status", "--json"],
+        &["status", "--root", "~/Code", "--json"],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
 
@@ -500,7 +500,12 @@ fn init_json_creates_explicit_missing_root_without_project_files() {
     let db_path = temp.root().join(".state").join("local.sqlite3");
 
     let output = run_bowline_with_env(
-        &["init", code_root.to_str().expect("code root"), "--json"],
+        &[
+            "init",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--json",
+        ],
         &[
             ("HOME", home.display().to_string()),
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
@@ -584,14 +589,19 @@ fn login_root_json_reports_workspace_errors_as_json() {
 }
 
 #[test]
-fn bare_init_json_creates_code_when_no_likely_roots_exist() {
+fn init_json_creates_code_when_explicit_root_is_missing() {
     let temp = TempWorkspace::new("cli-init-default-code").expect("temp workspace");
     let home = temp.root().join("home");
     fs::create_dir_all(&home).expect("home");
     let db_path = temp.root().join(".state").join("local.sqlite3");
 
     let output = run_bowline_with_env(
-        &["init", "--json"],
+        &[
+            "init",
+            "--root",
+            home.join("Code").to_str().expect("code root"),
+            "--json",
+        ],
         &[
             ("HOME", home.display().to_string()),
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
@@ -603,12 +613,12 @@ fn bare_init_json_creates_code_when_no_likely_roots_exist() {
     assert!(home.join("Code").is_dir());
     let json = parse_stdout_json(output);
     assert_eq!(json["root"], "~/Code");
-    assert_eq!(json["rootChoice"], "default-selected");
+    assert_eq!(json["rootChoice"], "explicit-created");
     assert_eq!(json["createdRoot"], true);
 }
 
 #[test]
-fn bare_init_json_rejects_existing_non_code_root_as_choice_needed() {
+fn bare_init_json_requires_explicit_root_when_non_code_root_exists() {
     let temp = TempWorkspace::new("cli-init-ambiguous-root").expect("temp workspace");
     let home = temp.root().join("home");
     fs::create_dir_all(home.join("Projects")).expect("projects root");
@@ -630,16 +640,16 @@ fn bare_init_json_rejects_existing_non_code_root_as_choice_needed() {
     assert_eq!(json["contractVersion"], 3);
     assert_eq!(json["command"], "init");
     assert_eq!(json["status"], "usage-error");
-    assert_eq!(json["error"]["code"], "ambiguous_root");
+    assert_eq!(json["error"]["code"], "usage_error");
     assert_eq!(json["error"]["recoverability"], "user-action");
     assert_eq!(
-        json["nextActions"][0]["command"],
-        "bowline login --root ~/Projects"
+        json["error"]["message"],
+        "bowline init requires --root <path>"
     );
 }
 
 #[test]
-fn bare_init_json_rejects_code_plus_other_roots_as_choice_needed() {
+fn bare_init_json_requires_explicit_root_when_code_plus_other_roots_exist() {
     let temp = TempWorkspace::new("cli-init-code-plus-projects").expect("temp workspace");
     let home = temp.root().join("home");
     fs::create_dir_all(home.join("Code")).expect("code root");
@@ -658,14 +668,10 @@ fn bare_init_json_rejects_code_plus_other_roots_as_choice_needed() {
     assert_eq!(output.status.code(), Some(2));
     assert!(!db_path.exists());
     let json = parse_stdout_json(output);
-    assert_eq!(json["error"]["code"], "ambiguous_root");
+    assert_eq!(json["error"]["code"], "usage_error");
     assert_eq!(
-        json["nextActions"][0]["command"],
-        "bowline login --root ~/Code"
-    );
-    assert_eq!(
-        json["nextActions"][1]["command"],
-        "bowline login --root ~/Projects"
+        json["error"]["message"],
+        "bowline init requires --root <path>"
     );
 }
 
@@ -793,7 +799,7 @@ fn init_json_rejects_unknown_single_flag_without_creating_root() {
     let db_path = temp.root().join(".state").join("local.sqlite3");
 
     let output = run_bowline_with_env(
-        &["init", "--dry-run", "--json"],
+        &["init", "--root", "~/Code", "--dry-run", "--json"],
         &[
             ("HOME", home.display().to_string()),
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
@@ -868,7 +874,12 @@ fn init_status_and_explain_observe_existing_code_root() {
     let db_path = temp.root().join(".state").join("local.sqlite3");
 
     let init = run_bowline_with_env(
-        &["init", code_root.to_str().expect("code root"), "--json"],
+        &[
+            "init",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--json",
+        ],
         &[
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
             ("BOWLINE_GENERATED_AT", "2026-06-24T12:00:00Z".to_string()),
@@ -887,20 +898,23 @@ fn init_status_and_explain_observe_existing_code_root() {
     assert_eq!(init_json["scanSummary"]["staleRemoteTrackingRepoCount"], 1);
 
     let status = run_bowline_with_env(
-        &["status", code_root.to_str().expect("code root"), "--json"],
+        &[
+            "status",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--json",
+        ],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
     assert!(status.status.success());
     let status_json = parse_stdout_json(status);
-    assert_eq!(status_json["status"]["level"], "attention");
+    assert_eq!(status_json["status"]["level"], "healthy");
     assert_eq!(
         status_json["workspaceSummary"]["observed"]["staleRemoteTrackingRepoCount"],
         1
     );
     let status_text = serde_json::to_string(&status_json).expect("status json string");
-    assert!(status_text.contains("Git observer is advisory"));
-    assert!(status_text.contains("never fetches, commits, or uses Git as sync"));
-    assert!(status_text.contains("local remote-tracking refs"));
+    assert!(status_text.contains("local branches ahead of their tracking refs"));
 
     let explain = run_bowline_with_env(
         &[

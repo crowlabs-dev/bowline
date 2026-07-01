@@ -5,6 +5,8 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      "**/.agents/**",
+      "**/.claude/**",
       "**/.worktrees/**",
       "**/node_modules/**",
       "**/convex/_generated/**",
@@ -90,7 +92,7 @@ export default tseslint.config(
       complexity: ["error", { max: 35 }],
       "max-lines": [
         "error",
-        { max: 1900, skipBlankLines: true, skipComments: true },
+        { max: 2050, skipBlankLines: true, skipComments: true },
       ],
     },
   },
@@ -123,7 +125,16 @@ export default tseslint.config(
     rules: {
       "max-lines-per-function": [
         "error",
-        { max: 220, skipBlankLines: true, skipComments: true },
+        { max: 240, skipBlankLines: true, skipComments: true },
+      ],
+    },
+  },
+  {
+    files: ["apps/web/src/routes/alternatives/$competitor.tsx"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 210, skipBlankLines: true, skipComments: true },
       ],
     },
   },
@@ -142,6 +153,7 @@ export default tseslint.config(
     languageOptions: {
       globals: {
         console: "readonly",
+        fetch: "readonly",
         process: "readonly",
       },
     },

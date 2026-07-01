@@ -1,11 +1,6 @@
 use crate::runtime;
 
-use super::{
-    ActionsArgs, Command, DEFAULT_AGENT_HYDRATE_BUDGET_BYTES, DaemonCommand, StatusArgs, TuiArgs,
-    agent, approve_no_pending_exit_code, bootstrap::BootstrapSshArgs, devices::DevicesArgs, login,
-    parse_args, recovery::RecoveryArgs, redact_setup_text, resolve,
-};
-use bowline_core::commands::{AgentLeaseBase, CommandName};
+use super::{Command, DaemonCommand, WorkspaceSelection, parse_args, redact_setup_text};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -100,8 +95,11 @@ fn parses_daemon_service_lifecycle_commands() {
 #[test]
 fn parses_diagnostics_collect() {
     assert_eq!(
-        parse_args(["diagnostics", "collect"]).command,
-        Command::DiagnosticsCollect
+        parse_args(["diagnostics", "collect", "--root", "~/Code"]).command,
+        Command::DiagnosticsCollect(WorkspaceSelection {
+            root: "~/Code".to_string(),
+            project: None,
+        })
     );
     assert!(matches!(
         parse_args(["diagnostics"]).command,
@@ -125,6 +123,21 @@ fn diagnostics_redaction_removes_home_paths_and_tokens() {
     assert!(redacted.text.contains("[redacted]"));
     assert!(!redacted.text.contains(&home_db));
     assert!(!redacted.text.contains(&token));
+}
+
+#[test]
+fn diagnostics_bundle_includes_requested_workspace_selection() {
+    let bundle = crate::daemon::diagnostics_bundle_text(
+        std::path::Path::new("/tmp/bowline.sock"),
+        "2026-06-30T00:00:00Z",
+        &WorkspaceSelection {
+            root: "/tmp/Custom Code".to_string(),
+            project: Some("apps/web".to_string()),
+        },
+    );
+
+    assert!(bundle.contains("requested_root=/tmp/Custom Code"));
+    assert!(bundle.contains("requested_project=apps/web"));
 }
 
 #[test]

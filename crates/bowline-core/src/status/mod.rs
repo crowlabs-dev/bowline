@@ -61,6 +61,7 @@ pub enum StatusItemKind {
     Materialization,
     Network,
     Index,
+    Update,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,10 +315,10 @@ fn classify_action(command: Option<&str>) -> (SafeActionEffect, SafeActionTarget
         return (SafeActionEffect::Inspect, SafeActionTarget::Unknown);
     };
     let command = command.trim();
-    if command.starts_with("bowline approve") || command.contains(" devices approve") {
+    if command.starts_with("bowline approve") {
         return (SafeActionEffect::Trust, SafeActionTarget::Device);
     }
-    if command.starts_with("bowline revoke") || command.contains(" devices revoke") {
+    if command.starts_with("bowline revoke") {
         return (SafeActionEffect::Destructive, SafeActionTarget::Device);
     }
     if command == "bowline recover"
@@ -377,6 +378,9 @@ fn classify_action(command: Option<&str>) -> (SafeActionEffect, SafeActionTarget
     }
     if command.starts_with("bowline connect") {
         return (SafeActionEffect::Trust, SafeActionTarget::Device);
+    }
+    if command.starts_with("bowline update") {
+        return (SafeActionEffect::Mutate, SafeActionTarget::Workspace);
     }
     (SafeActionEffect::Inspect, SafeActionTarget::Workspace)
 }

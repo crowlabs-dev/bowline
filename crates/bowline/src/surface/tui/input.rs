@@ -80,7 +80,7 @@ mod tests {
             TuiTone::Attention,
             vec![TuiAction {
                 label: "Inspect status".to_string(),
-                command: Some("bowline status".to_string()),
+                command: Some("bowline status --root ~/Code".to_string()),
                 mutates: false,
             }],
             Vec::new(),
@@ -97,7 +97,7 @@ mod tests {
             TuiTone::Attention,
             vec![TuiAction {
                 label: "Approve device".to_string(),
-                command: Some("bowline approve req_1".to_string()),
+                command: Some("bowline approve --root ~/Code --request req_1".to_string()),
                 mutates: true,
             }],
             Vec::new(),
@@ -145,12 +145,12 @@ mod tests {
             vec![
                 TuiAction {
                     label: "Approve device".to_string(),
-                    command: Some("bowline approve req_1".to_string()),
+                    command: Some("bowline approve --root ~/Code --request req_1".to_string()),
                     mutates: true,
                 },
                 TuiAction {
                     label: "Revoke device".to_string(),
-                    command: Some("bowline revoke req_1".to_string()),
+                    command: Some("bowline revoke --root ~/Code --device req_1".to_string()),
                     mutates: true,
                 },
             ],
@@ -168,7 +168,7 @@ mod tests {
             model
                 .confirmed_action()
                 .and_then(|action| action.command.as_deref()),
-            Some("bowline approve req_1")
+            Some("bowline approve --root ~/Code --request req_1")
         );
     }
 
@@ -180,7 +180,7 @@ mod tests {
             vec![
                 TuiAction {
                     label: "First".to_string(),
-                    command: Some("bowline status".to_string()),
+                    command: Some("bowline status --root ~/Code".to_string()),
                     mutates: false,
                 },
                 TuiAction {

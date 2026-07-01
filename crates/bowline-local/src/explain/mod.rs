@@ -272,14 +272,14 @@ fn next_actions_for_decision(
     if observed_state == "metadata-missing" {
         return vec![SafeAction {
             label: "Inspect local metadata".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some("bowline status --root ~/Code".to_string()),
         }];
     }
 
     if observed_state == "not-observed" {
         return vec![SafeAction {
             label: "Refresh workspace observation".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some("bowline status --root ~/Code".to_string()),
         }];
     }
 
@@ -311,7 +311,7 @@ fn next_actions_for_decision(
 
     vec![SafeAction {
         label: "Inspect workspace status".to_string(),
-        command: Some("bowline status".to_string()),
+        command: Some("bowline status --root ~/Code".to_string()),
     }]
 }
 

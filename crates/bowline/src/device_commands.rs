@@ -20,88 +20,27 @@ pub(super) fn print_devices(args: devices::DevicesArgs, json: bool) -> ExitCode 
 
 pub(super) fn print_approve(args: ApproveArgs, json: bool) -> ExitCode {
     let generated_at = generated_at();
-    let request_id = match args.request_id {
-        Some(request_id) => request_id,
-        None => match devices::pending_requests() {
-            Ok(requests) if requests.is_empty() => {
-                return print_approve_no_pending(json, generated_at);
-            }
-            Ok(requests) if requests.len() == 1 => {
-                let request = &requests[0];
-                if json && !args.yes {
-                    print_command_usage_error(
-                        CommandUsageError {
-                            command: CommandName::Approve,
-                            code: "request_required",
-                            message: "JSON approval requires an explicit request id or --yes."
-                                .to_string(),
-                            next_actions: vec![SafeAction {
-                                label: format!("Approve {}", request.device_name),
-                                command: Some(format!(
-                                    "bowline approve {} --yes",
-                                    request.request_id.as_str()
-                                )),
-                            }],
-                        },
-                        generated_at,
-                        true,
-                    );
-                    return ExitCode::from(EXIT_USAGE);
-                }
-                if !json && !args.yes {
-                    println!(
-                        "Approve {}? Matching code: {}",
-                        request.device_name, request.matching_code
-                    );
-                    if !confirm_return("Approve?") {
-                        return ExitCode::SUCCESS;
-                    }
-                }
-                request.request_id.as_str().to_string()
-            }
-            Ok(requests) => {
-                if json {
-                    print_command_usage_error(
-                        CommandUsageError {
-                            command: CommandName::Approve,
-                            code: "multiple_pending_devices",
-                            message: "Multiple devices are waiting for approval.".to_string(),
-                            next_actions: requests
-                                .iter()
-                                .map(|request| SafeAction {
-                                    label: format!("Approve {}", request.device_name),
-                                    command: Some(format!(
-                                        "bowline approve {}",
-                                        request.request_id.as_str()
-                                    )),
-                                })
-                                .collect(),
-                        },
-                        generated_at,
-                        json,
-                    );
-                } else {
-                    println!("Multiple devices are waiting for approval:");
-                    for request in requests {
-                        println!(
-                            "  {}  {}  {}",
-                            request.request_id.as_str(),
-                            request.device_name,
-                            request.matching_code
-                        );
-                    }
-                    println!("Run `bowline approve <request>`.");
-                }
-                return ExitCode::from(EXIT_USAGE);
-            }
-            Err(error) => {
-                print_runtime_error(CommandName::Approve, generated_at, &error, json);
-                return ExitCode::from(EXIT_RUNTIME);
-            }
-        },
+    let root = resolve_explicit_path(args.selection.root.clone());
+    let workspace_id = match runtime::workspace_id_for_root(&root) {
+        Ok(workspace_id) => workspace_id,
+        Err(error) => {
+            print_runtime_error(CommandName::Approve, generated_at, &error, json);
+            return ExitCode::from(EXIT_RUNTIME);
+        }
+    };
+    let request_id = match devices::request_id_for_selector(&workspace_id, &args.selector) {
+        Ok(request_id) => request_id,
+        Err(error) => {
+            print_runtime_error(CommandName::Approve, generated_at, &error, json);
+            return ExitCode::from(EXIT_RUNTIME);
+        }
     };
 
-    match devices::approve(request_id, generated_at.clone()) {
+    if !json && !args.yes && !confirm_return("Approve device request?") {
+        return ExitCode::SUCCESS;
+    }
+
+    match devices::approve(workspace_id, request_id, generated_at.clone()) {
         Ok(mut output) if json => {
             output.command = CommandName::Approve;
             print_json(&output);
@@ -119,39 +58,53 @@ pub(super) fn print_approve(args: ApproveArgs, json: bool) -> ExitCode {
     }
 }
 
-pub(super) fn print_approve_no_pending(json: bool, generated_at: String) -> ExitCode {
-    if json {
-        print_command_usage_error(
-            CommandUsageError {
-                command: CommandName::Approve,
-                code: "no_pending_device",
-                message: "No device is waiting for approval.".to_string(),
-                next_actions: vec![SafeAction {
-                    label: "Inspect workspace status".to_string(),
-                    command: Some("bowline status".to_string()),
-                }],
-            },
-            generated_at,
-            true,
-        );
-    } else {
-        println!("No device is waiting for approval.\nNext: bowline status");
-    }
-    ExitCode::from(approve_no_pending_exit_code(json))
-}
+pub(super) fn print_deny(args: ApproveArgs, json: bool) -> ExitCode {
+    let generated_at = generated_at();
+    let root = resolve_explicit_path(args.selection.root);
+    let workspace_id = match runtime::workspace_id_for_root(&root) {
+        Ok(workspace_id) => workspace_id,
+        Err(error) => {
+            print_runtime_error(CommandName::Deny, generated_at, &error, json);
+            return ExitCode::from(EXIT_RUNTIME);
+        }
+    };
+    let request_id = match devices::request_id_for_selector(&workspace_id, &args.selector) {
+        Ok(request_id) => request_id,
+        Err(error) => {
+            print_runtime_error(CommandName::Deny, generated_at, &error, json);
+            return ExitCode::from(EXIT_RUNTIME);
+        }
+    };
 
-pub(super) fn approve_no_pending_exit_code(json: bool) -> u8 {
-    if json { EXIT_USAGE } else { 0 }
+    match devices::deny(workspace_id, request_id, generated_at.clone()) {
+        Ok(mut output) if json => {
+            output.command = CommandName::Deny;
+            print_json(&output);
+            ExitCode::SUCCESS
+        }
+        Ok(mut output) => {
+            output.command = CommandName::Deny;
+            print!("{}", render_devices_human(&output));
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            print_runtime_error(CommandName::Deny, generated_at, &error, json);
+            ExitCode::from(EXIT_RUNTIME)
+        }
+    }
 }
 
 pub(super) fn print_revoke(args: RevokeArgs, json: bool) -> ExitCode {
     let generated_at = generated_at();
-    match devices::run(
-        devices::DevicesArgs::Revoke {
-            device_id: args.device_id,
-        },
-        generated_at.clone(),
-    ) {
+    let root = resolve_explicit_path(args.selection.root);
+    let workspace_id = match runtime::workspace_id_for_root(&root) {
+        Ok(workspace_id) => workspace_id,
+        Err(error) => {
+            print_runtime_error(CommandName::Revoke, generated_at, &error, json);
+            return ExitCode::from(EXIT_RUNTIME);
+        }
+    };
+    match devices::revoke(workspace_id, args.device_id, generated_at.clone()) {
         Ok(mut output) if json => {
             output.command = CommandName::Revoke;
             print_json(&output);

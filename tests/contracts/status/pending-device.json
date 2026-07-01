@@ -34,13 +34,13 @@
   "nextActions": [
     {
       "label": "Approve Dev-Mac",
-      "command": "bowline approve device-request:ws_code:dev-mac",
+      "command": "bowline approve --root ~/Code --request device-request:ws_code:dev-mac",
       "effectCategory": "trust",
       "targetKind": "device"
     },
     {
       "label": "Inspect workspace status",
-      "command": "bowline status",
+      "command": "bowline status --root ~/Code",
       "effectCategory": "inspect",
       "targetKind": "workspace"
     }

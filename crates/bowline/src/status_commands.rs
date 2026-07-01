@@ -4,8 +4,8 @@ pub(super) fn print_status(args: StatusArgs, json: bool) -> ExitCode {
     let generated_at = generated_at();
     let options = StatusOptions {
         db_path: metadata_db_path(),
-        requested_path: requested_path(args.path),
-        workspace_scope: args.workspace,
+        requested_path: selected_workspace_path(args.selection),
+        workspace_scope: args.include_all,
         generated_at: generated_at.clone(),
     };
 
@@ -19,9 +19,9 @@ pub(super) fn print_status(args: StatusArgs, json: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(output) => {
-            let human = bowline_local::status::render_status_human(&output);
-            print!("{human}");
-            ExitCode::SUCCESS
+            let pres = surface::style::Presentation::detect(false);
+            let human = surface::human::render_status(&output, &pres);
+            write_human_or_exit(CommandName::Status, generated_at, &human)
         }
         Err(error) => {
             print_runtime_error(CommandName::Status, generated_at, &error.to_string(), json);
@@ -34,8 +34,8 @@ pub(super) fn print_actions(args: ActionsArgs, json: bool) -> ExitCode {
     let generated_at = generated_at();
     let options = StatusOptions {
         db_path: metadata_db_path(),
-        requested_path: requested_path(args.path),
-        workspace_scope: args.workspace,
+        requested_path: selected_workspace_path(args.selection),
+        workspace_scope: false,
         generated_at: generated_at.clone(),
     };
     match compose_status_for_cli(options) {
@@ -46,7 +46,8 @@ pub(super) fn print_actions(args: ActionsArgs, json: bool) -> ExitCode {
         }
         Ok(output) => {
             let output = surface::actions::from_status(&output);
-            let human = surface::human::render_actions(&output);
+            let pres = surface::style::Presentation::detect(false);
+            let human = surface::human::render_actions(&output, &pres);
             write_human_or_exit(CommandName::Actions, generated_at, &human)
         }
         Err(error) => {
@@ -63,11 +64,14 @@ pub(super) fn print_tui(args: TuiArgs, json: bool, socket: &Path) -> ExitCode {
             CommandUsageError {
                 command: CommandName::Tui,
                 code: "usage_error",
-                message: "bowline tui is an interactive command; use `bowline status --json`"
+                message: "bowline tui is an interactive command; use `bowline status --root <path> --json`"
                     .to_string(),
                 next_actions: vec![SafeAction {
                     label: "Inspect status as JSON".to_string(),
-                    command: Some("bowline status --json".to_string()),
+                    command: Some(format!(
+                        "bowline status --root {} --json",
+                        io_helpers::shell_word(&args.selection.root)
+                    )),
                 }],
             },
             generated_at,
@@ -77,19 +81,22 @@ pub(super) fn print_tui(args: TuiArgs, json: bool, socket: &Path) -> ExitCode {
     }
     let options = StatusOptions {
         db_path: metadata_db_path(),
-        requested_path: requested_path(args.path),
+        requested_path: selected_workspace_path(args.selection),
         workspace_scope: false,
         generated_at: generated_at.clone(),
     };
     match compose_status_for_cli(options) {
         Ok(output) if !io::stdin().is_terminal() || !io::stdout().is_terminal() => {
             let output = surface::actions::from_status(&output);
-            let human = surface::human::render_actions(&output);
+            let pres = surface::style::Presentation::detect(false);
+            let human = surface::human::render_actions(&output, &pres);
             write_human_or_exit(CommandName::Tui, generated_at, &human)
         }
         Ok(output) => {
+            let verdict = surface::style::Verdict::from_output(&output);
             let model =
-                surface::tui::TuiModel::from_actions(&surface::actions::from_status(&output));
+                surface::tui::TuiModel::from_actions(&surface::actions::from_status(&output))
+                    .with_verdict(verdict);
             match surface::tui::run_app(model) {
                 Ok(Some(command)) => run_confirmed_tui_command(&command, socket),
                 Ok(None) => ExitCode::SUCCESS,
@@ -111,6 +118,7 @@ pub(super) fn compose_status_for_cli(
 ) -> Result<StatusCommandOutput, bowline_local::status::LocalStatusError> {
     let mut output = bowline_local::status::compose_status(options)?;
     attach_device_status_if_available(&mut output);
+    attach_update_status_if_available(&mut output, true);
     abbreviate_status_requested_path(&mut output);
     Ok(output)
 }
@@ -260,7 +268,7 @@ pub(super) fn attach_device_status_if_available(output: &mut StatusCommandOutput
         output.items.push(item);
         output.next_actions.push(SafeAction {
             label: "Inspect workspace status".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some(status_command(output, &[])),
         });
         return;
     }
@@ -311,7 +319,10 @@ pub(super) fn attach_device_status_if_available(output: &mut StatusCommandOutput
             StatusSubjectKind::Device,
             local_device_id.as_str(),
             Some(local_device_id.clone()),
-            "Run `bowline login` to request workspace trust.".to_string(),
+            format!(
+                "Run `bowline login --root {}` to request workspace trust.",
+                status_root_arg(output)
+            ),
         );
         output.items.push(item);
     }
@@ -330,7 +341,11 @@ pub(super) fn attach_device_status_if_available(output: &mut StatusCommandOutput
             .map(|request| {
                 output.next_actions.push(SafeAction {
                     label: format!("Approve {}", request.device_name),
-                    command: Some(format!("bowline approve {}", request.request_id)),
+                    command: Some(format!(
+                        "bowline approve --root {} --request {}",
+                        status_root_arg(output),
+                        io_helpers::shell_word(request.request_id.as_str())
+                    )),
                 });
                 device_status_item(
                     output,
@@ -347,9 +362,27 @@ pub(super) fn attach_device_status_if_available(output: &mut StatusCommandOutput
         output.items.extend(pending_items);
         output.next_actions.push(SafeAction {
             label: "Review workspace status".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some(status_command(output, &[])),
         });
     }
+}
+
+fn status_command(output: &StatusCommandOutput, extra: &[&str]) -> String {
+    let mut command = format!("bowline status --root {}", status_root_arg(output));
+    for arg in extra {
+        command.push(' ');
+        command.push_str(arg);
+    }
+    command
+}
+
+fn status_root_arg(output: &StatusCommandOutput) -> String {
+    io_helpers::shell_word(
+        output
+            .resolved_workspace_root
+            .as_deref()
+            .unwrap_or("~/Code"),
+    )
 }
 
 pub(super) fn trusted_device_summary(device_id: &str, device_name: &str) -> String {
@@ -391,21 +424,23 @@ pub(super) fn device_status_item(
 
 pub(super) fn print_status_watch(
     options: StatusOptions,
-    generated_at: String,
+    started_at: String,
     json: bool,
 ) -> ExitCode {
     let mut sequence = 1;
     let mut last_output = None;
+    let pres = surface::style::Presentation::detect(json);
 
     loop {
         let output = match bowline_local::status::compose_status(options.clone()) {
             Ok(mut output) => {
                 attach_device_status_if_available(&mut output);
+                attach_update_status_if_available(&mut output, false);
                 abbreviate_status_requested_path(&mut output);
                 output
             }
             Err(error) => {
-                print_runtime_error(CommandName::Status, generated_at, &error.to_string(), json);
+                print_runtime_error(CommandName::Status, started_at, &error.to_string(), json);
                 return ExitCode::from(EXIT_RUNTIME);
             }
         };
@@ -415,18 +450,20 @@ pub(super) fn print_status_watch(
             let write_result = if json {
                 write_json_line(&frame)
             } else {
-                write_text(&surface::human::render_watch_frame(&frame))
+                // Fresh emit-time clock per frame; the composed timestamp is
+                // frozen for change-detection, so it must not drive display.
+                let display_at = generated_at();
+                write_text(&surface::human::render_watch_frame(
+                    &frame,
+                    &display_at,
+                    &pres,
+                ))
             };
             if let Err(error) = write_result {
                 return if error.kind() == io::ErrorKind::BrokenPipe {
                     ExitCode::SUCCESS
                 } else {
-                    print_runtime_error(
-                        CommandName::Status,
-                        generated_at,
-                        &error.to_string(),
-                        json,
-                    );
+                    print_runtime_error(CommandName::Status, started_at, &error.to_string(), json);
                     ExitCode::from(EXIT_RUNTIME)
                 };
             }

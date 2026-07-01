@@ -62,6 +62,62 @@ const IDEMPOTENCY_OPTION: OptionSpec = OptionSpec {
     required: false,
     repeatable: false,
 };
+const ROOT_OPTION: OptionSpec = OptionSpec {
+    name: "--root",
+    value_name: Some("path"),
+    summary: "Select the workspace root.",
+    required: true,
+    repeatable: false,
+};
+const PROJECT_OPTION: OptionSpec = OptionSpec {
+    name: "--project",
+    value_name: Some("path"),
+    summary: "Scope to a project under the selected root.",
+    required: false,
+    repeatable: false,
+};
+const REQUEST_OPTION: OptionSpec = OptionSpec {
+    name: "--request",
+    value_name: Some("id"),
+    summary: "Select a pending device request.",
+    required: false,
+    repeatable: false,
+};
+const CODE_OPTION: OptionSpec = OptionSpec {
+    name: "--code",
+    value_name: Some("matching-code"),
+    summary: "Select the pending request with this matching code.",
+    required: false,
+    repeatable: false,
+};
+const DEVICE_OPTION: OptionSpec = OptionSpec {
+    name: "--device",
+    value_name: Some("id"),
+    summary: "Select a trusted device.",
+    required: true,
+    repeatable: false,
+};
+const LIMIT_OPTION: OptionSpec = OptionSpec {
+    name: "--limit",
+    value_name: Some("n"),
+    summary: "Maximum results to return.",
+    required: false,
+    repeatable: false,
+};
+const CURSOR_OPTION: OptionSpec = OptionSpec {
+    name: "--cursor",
+    value_name: Some("cursor"),
+    summary: "Opaque cursor from nextCursor.",
+    required: false,
+    repeatable: false,
+};
+const PATH_PREFIX_OPTION: OptionSpec = OptionSpec {
+    name: "--path-prefix",
+    value_name: Some("prefix"),
+    summary: "Restrict matches to a path prefix.",
+    required: false,
+    repeatable: false,
+};
 const RECOVERY_IDEMPOTENCY_OPTION: OptionSpec = OptionSpec {
     name: "--idempotency-key",
     value_name: Some("key"),
@@ -76,7 +132,6 @@ const SEARCH_BOUND: BoundedSpec = BoundedSpec {
     path_prefix: true,
 };
 
-const EMPTY_OPTIONS: &[OptionSpec] = &[];
 const EMPTY_EXAMPLES: &[ExampleSpec] = &[];
 
 mod specs;

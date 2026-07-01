@@ -31,6 +31,7 @@ mod runtime;
 mod service;
 mod status_commands;
 mod surface;
+mod update;
 mod wire;
 mod work;
 mod work_agent_commands;
@@ -47,7 +48,8 @@ use bowline_core::commands::{
     DaemonCommandOutput, DaemonProcessOutput, DaemonServiceOutput, DaemonServiceState,
     DaemonStatusOutput, DiagnosticsCollectCommandOutput, DryRunCommandOutput, DryRunStatus,
     EventsCommandOutput, HelpCommandOutput, PrewarmCommandOutcome, PrewarmCommandOutput,
-    PrewarmCommandState, StatusCommandOutput, VersionCommandOutput, WatchFrame,
+    PrewarmCommandState, StatusCommandOutput, UpdateCommandOutput, VersionCommandOutput,
+    WatchFrame,
 };
 use bowline_core::ids::{DeviceApprovalRequestId, DeviceId, WorkspaceId};
 use bowline_core::status::{
@@ -94,7 +96,7 @@ pub fn main() -> ExitCode {
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|_| {
         eprintln!(
-            "bowline hit an internal error. Run `bowline status` and inspect daemon logs; environment values were not printed."
+            "bowline hit an internal error. Run `bowline status --root <path>` and inspect daemon logs; environment values were not printed."
         );
     }));
 }
@@ -106,6 +108,24 @@ fn usage_error(command: CommandName, message: impl Into<String>) -> Command {
     }
 }
 
+fn selected_workspace_path(selection: WorkspaceSelection) -> Option<String> {
+    let root = resolve_explicit_path(selection.root);
+    match selection.project {
+        Some(project) if !project.is_empty() => {
+            if project == "~" || project.starts_with("~/") || Path::new(&project).is_absolute() {
+                Some(resolve_explicit_path(project))
+            } else {
+                Some(format!(
+                    "{}/{}",
+                    root.trim_end_matches('/'),
+                    project.trim_start_matches('/')
+                ))
+            }
+        }
+        _ => Some(root),
+    }
+}
+
 use daemon::*;
 use device_commands::*;
 use errors::*;
@@ -114,5 +134,6 @@ use login_init::*;
 use render::*;
 use service::*;
 use status_commands::*;
+use update::*;
 use wire::*;
 use work_agent_commands::*;

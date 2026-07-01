@@ -1,8 +1,18 @@
 import type { AccountLoginState } from "./account";
-import type { DeviceApprovalRequest, DeviceRecord, EncryptedDeviceGrant, RecoveryKeyState, RevokedDevice } from "./devices";
+import type {
+  DeviceApprovalRequest,
+  DeviceRecord,
+  EncryptedDeviceGrant,
+  RecoveryKeyState,
+  RevokedDevice,
+} from "./devices";
 import type { WorkspaceEvent } from "./events";
 import type { CONTRACT_VERSION, EventId, ProjectId, WorkspaceId } from "./ids";
-import type { AccessFlag, MaterializationMode, PathClassification } from "./policy";
+import type {
+  AccessFlag,
+  MaterializationMode,
+  PathClassification,
+} from "./policy";
 import type {
   EventWatermarks,
   HydrationBudgetStatus,
@@ -22,10 +32,12 @@ export const COMMAND_NAMES = [
   "help",
   "version",
   "contract",
+  "update",
   "unknown",
   "login",
   "logout",
   "approve",
+  "deny",
   "revoke",
   "recover",
   "init",
@@ -66,7 +78,6 @@ export const COMMAND_NAMES = [
 export type CommandName = (typeof COMMAND_NAMES)[number];
 
 type CommandErrorName = CommandName;
-
 
 export type CommandOutputBase<TCommand extends string> = {
   readonly contractVersion: typeof CONTRACT_VERSION;
@@ -130,6 +141,14 @@ export type VersionCommandOutput = CommandOutputBase<"version"> & {
   readonly protocolVersion: number;
   readonly defaultSocket: string;
   readonly package: string;
+};
+
+export type UpdateCommandOutput = CommandOutputBase<"update"> & {
+  readonly ok: boolean;
+  readonly currentVersion: string;
+  readonly latestVersion: string;
+  readonly updateAvailable: boolean;
+  readonly updateCommand: string;
 };
 
 export type ContractFixtureDescriptor = {
@@ -275,7 +294,6 @@ export type ExplainCommandOutput = CommandOutputBase<"explain"> & {
   readonly nextActions: readonly SafeAction[];
 };
 
-
 export type ActionsCommandOutput = CommandOutputBase<"actions"> & {
   readonly scope?: StatusScope;
   readonly status: WorkspaceStatus;
@@ -284,7 +302,7 @@ export type ActionsCommandOutput = CommandOutputBase<"actions"> & {
 };
 
 export type DevicesCommandOutput = CommandOutputBase<
-  "approve" | "revoke" | "devices"
+  "approve" | "deny" | "revoke" | "devices"
 > & {
   readonly action:
     | "list"
@@ -312,7 +330,6 @@ export type RecoveryCommandOutput = CommandOutputBase<"recover"> & {
   readonly encryptedGrant?: EncryptedDeviceGrant;
   readonly nextActions: readonly SafeAction[];
 };
-
 
 export type CommandErrorStatus =
   | "usage-error"

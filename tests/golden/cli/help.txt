@@ -6,25 +6,27 @@ Discovery:
   bowline contract --json
 
 Workspace:
-  bowline login [--root <path>] [--headless] [--no-poll]
+  bowline update [--check] [--version <version>] [--json]
+  bowline login --root <path> [--headless] [--no-poll]
   bowline logout [--json]
-  bowline status [path] [--watch] [--workspace|--all] [--json]
-  bowline init [path] [--json]
+  bowline status --root <path> [--project <path>] [--watch] [--all] [--json]
+  bowline init --root <path> [--json]
   bowline setup [path] [--yes] [--json]
   bowline prewarm <project> [--approve-setup] [--json]
-  bowline actions [path] [--workspace] [--json]
+  bowline actions --root <path> [--project <path>] [--json]
   bowline search <query> [path] [--limit <n>] [--cursor <cursor>] [--path-prefix <prefix>] [--json]
   bowline symbols <name> [path] [--limit <n>] [--cursor <cursor>] [--path-prefix <prefix>] [--json]
   bowline explain <path> [--json]
-  bowline events [path] [--workspace] [--limit <n>] [--json]
+  bowline events --root <path> [--project <path>] [--limit <n>] [--json]
   bowline resolve [path] [--tui|--copy-prompt|--diff <conflict>] [--json]
-  bowline tui [path]
+  bowline tui --root <path> [--project <path>]
 
 Trust:
-  bowline approve [request] [--yes] [--json] [--dry-run] [--idempotency-key <key>]
-  bowline revoke <device> [--json] [--dry-run] [--idempotency-key <key>]
+  bowline approve --root <path> (--request <id>|--code <matching-code>) [--yes] [--json] [--dry-run] [--idempotency-key <key>]
+  bowline deny --root <path> (--request <id>|--code <matching-code>) [--json] [--dry-run] [--idempotency-key <key>]
+  bowline revoke --root <path> --device <id> [--json] [--dry-run] [--idempotency-key <key>]
   bowline recover [status|create|verify <id>|rotate|revoke <id>|use <id>] [--json] [--dry-run] [--idempotency-key <key>]
-  bowline devices [list|request|approve|accept|deny|revoke] [--json]
+  bowline devices [request|accept] --root <path> [--request <id>] [--json]
   bowline connect <host> [--root <path>] [--project <project> --task <task> --agent <agent>] [--json] [--dry-run] [--idempotency-key <key>]
 
 Work:
@@ -54,7 +56,7 @@ Daemon:
   bowline daemon uninstall [--json] [--dry-run] [--idempotency-key <key>]
 
 Support:
-  bowline diagnostics collect [--json]
+  bowline diagnostics collect --root <path> [--json]
 
 Global options:
   --json

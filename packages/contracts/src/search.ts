@@ -1,6 +1,15 @@
 import type { ProjectId, SnapshotId } from "./ids";
-import type { AccessFlag, MaterializationMode, PathClassification } from "./policy";
-import type { HydrationBudgetStatus, IndexStatus, SafeAction, WorkspaceStatus } from "./status";
+import type {
+  AccessFlag,
+  MaterializationMode,
+  PathClassification,
+} from "./policy";
+import type {
+  HydrationBudgetStatus,
+  IndexStatus,
+  SafeAction,
+  WorkspaceStatus,
+} from "./status";
 import type { CommandOutputBase } from "./commands";
 import type { HydrationState } from "./snapshot";
 

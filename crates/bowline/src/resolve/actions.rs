@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::io_helpers::shell_word;
+
 pub(super) fn action_for(args: &ResolveArgs) -> ResolveAction {
     match &args.decision {
         Some(ResolveDecision::Accept(_)) => ResolveAction::Accept,
@@ -118,9 +120,14 @@ pub(super) fn next_actions(
     available_agents: &[AvailableAgent],
 ) -> Vec<ResolveAvailableAction> {
     if conflicts.is_empty() {
+        let root = status_root_for_project_or_path(project_or_path);
         return vec![ResolveAvailableAction {
             label: "Check workspace status".to_string(),
-            command: Some(format!("bowline status {}", shell_word(project_or_path))),
+            command: Some(format!(
+                "bowline status --root {} --project {}",
+                shell_word(root),
+                shell_word(project_or_path)
+            )),
         }];
     }
 
@@ -181,16 +188,15 @@ pub(super) fn available_actions(
     actions
 }
 
-pub(super) fn shell_word(value: &str) -> String {
-    if !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-' | b':' | b'+' | b'=' | b'@' | b'%'))
+fn status_root_for_project_or_path(project_or_path: &str) -> &str {
+    if project_or_path == "~"
+        || project_or_path.starts_with("~/")
+        || std::path::Path::new(project_or_path).is_absolute()
     {
-        return value.to_string();
+        project_or_path
+    } else {
+        "."
     }
-
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 pub(super) fn detect_agents() -> Vec<AvailableAgent> {
@@ -221,4 +227,26 @@ pub(super) fn resolve_agent_for_cli_name(name: AgentCliName) -> Option<ResolveAg
 
 pub fn parse_agent(value: &str) -> Option<ResolveAgent> {
     crate::agent_adapters::parse_cli_name(value).and_then(resolve_agent_for_cli_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_actions;
+
+    #[test]
+    fn no_conflict_status_action_uses_requested_path_root() {
+        let relative = next_actions("apps/web", &[], &[]);
+        assert_eq!(
+            relative[0].command.as_deref(),
+            Some("bowline status --root . --project apps/web")
+        );
+
+        let home_relative = next_actions("~/Code Projects/apps/web", &[], &[]);
+        assert_eq!(
+            home_relative[0].command.as_deref(),
+            Some(
+                "bowline status --root ~/'Code Projects/apps/web' --project ~/'Code Projects/apps/web'"
+            )
+        );
+    }
 }

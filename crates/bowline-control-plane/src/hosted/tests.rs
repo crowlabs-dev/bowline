@@ -1,7 +1,5 @@
 use super::*;
 
-use super::*;
-
 #[test]
 fn generated_object_keys_preserve_shape_and_change_with_seed() {
     let first = generated_object_key(ObjectKind::SourcePack, "workspace:device:1");

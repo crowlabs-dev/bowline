@@ -29,6 +29,7 @@ import {
   isSearchCommandOutput,
   isStatusCommandOutput,
   isSymbolCommandOutput,
+  isUpdateCommandOutput,
   isVersionCommandOutput,
   isWorkCleanupCommandOutput,
   isWorkDiffCommandOutput,
@@ -65,6 +66,7 @@ const commandOutputGuards: Record<string, (value: unknown) => boolean> = {
   SearchCommandOutput: isSearchCommandOutput,
   StatusCommandOutput: isStatusCommandOutput,
   SymbolCommandOutput: isSymbolCommandOutput,
+  UpdateCommandOutput: isUpdateCommandOutput,
   VersionCommandOutput: isVersionCommandOutput,
   WorkCleanupCommandOutput: isWorkCleanupCommandOutput,
   WorkDiffCommandOutput: isWorkDiffCommandOutput,
@@ -126,6 +128,19 @@ describe("workspace command contracts", () => {
   it("accepts discovery and dry-run command fixtures", () => {
     expect(isHelpCommandOutput(readCommandFixture("help"))).toBe(true);
     expect(isVersionCommandOutput(readCommandFixture("version"))).toBe(true);
+    expect(
+      isUpdateCommandOutput({
+        contractVersion: 3,
+        command: "update",
+        generatedAt: "2026-06-29T12:00:00Z",
+        ok: true,
+        currentVersion: "0.1.0",
+        latestVersion: "0.1.1",
+        updateAvailable: true,
+        updateCommand:
+          "curl -fsSL 'https://install.bowline.sh/install.sh' | sh",
+      }),
+    ).toBe(true);
     expect(isContractCommandOutput(readCommandFixture("contract"))).toBe(true);
     expect(isDryRunCommandOutput(readCommandFixture("dry-run"))).toBe(true);
   });

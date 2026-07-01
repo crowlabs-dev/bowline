@@ -26,6 +26,7 @@ use super::{
         is_source_control_metadata_path, main_project_root, open_store, resolve_work_view,
         work_namespace_root, work_view_base_has_path, workspace_path_for_project_file,
     },
+    status_all_command,
 };
 
 pub fn accept_work_view(
@@ -94,6 +95,7 @@ pub fn accept_work_view(
         &work_view,
         &options.generated_at,
     );
+    let status_command = status_all_command(&store, &work_view.workspace_id)?;
     Ok(WorkLifecycleCommandOutput {
         contract_version: CONTRACT_VERSION,
         command: CommandName::Accept,
@@ -103,7 +105,7 @@ pub fn accept_work_view(
         status: WorkspaceStatus::healthy(),
         next_actions: vec![SafeAction {
             label: "Inspect workspace status".to_string(),
-            command: Some("bowline status --all".to_string()),
+            command: Some(status_command),
         }],
     })
 }
@@ -257,6 +259,7 @@ fn transition_work_view_with_store(
         mark_matching_agent_leases_discarded(&store, &work_view, &generated_at)?;
     }
     append_work_event(&store, transition.event_name, &work_view, &generated_at);
+    let status_command = status_all_command(&store, &work_view.workspace_id)?;
     Ok(WorkLifecycleCommandOutput {
         contract_version: CONTRACT_VERSION,
         command: transition.command,
@@ -266,7 +269,7 @@ fn transition_work_view_with_store(
         status: WorkspaceStatus::healthy(),
         next_actions: vec![SafeAction {
             label: "List work views".to_string(),
-            command: Some("bowline status --all".to_string()),
+            command: Some(status_command),
         }],
     })
 }

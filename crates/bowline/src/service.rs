@@ -274,7 +274,9 @@ pub(super) fn daemon_launch_config(socket: &Path) -> Result<DaemonLaunchConfig, 
         .map_err(|error| error.to_string())?
         .into_iter()
         .next()
-        .ok_or_else(|| "no accepted workspace root; run `bowline login` first".to_string())?;
+        .ok_or_else(|| {
+            "no accepted workspace root; run `bowline login --root <path>` first".to_string()
+        })?;
     let root = expand_home_path(&root);
     let daemon = daemon_binary_path()?;
     let device_id = daemon_device_id_for_launch(&state_root, &workspace_id);

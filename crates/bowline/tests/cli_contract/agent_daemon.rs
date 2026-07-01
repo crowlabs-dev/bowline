@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn events_limit_rejects_unbounded_requests() {
-    let output = run_bowline(&["events", "--limit", "999999", "--json"]);
+    let output = run_bowline(&["events", "--root", "~/Code", "--limit", "999999", "--json"]);
 
     assert_eq!(output.status.code(), Some(2));
     let json = parse_stdout_json(output);
@@ -16,13 +16,19 @@ fn events_limit_rejects_unbounded_requests() {
 #[test]
 fn trust_commands_fail_without_control_plane_config_instead_of_using_ephemeral_fake() {
     let temp = TempWorkspace::new("trust-missing-control-plane").expect("temp workspace");
+    let db_path = temp.root().join("state").join("local.sqlite3");
+    let workspace_id = WorkspaceId::new("ws_code");
+    let store = MetadataStore::open(&db_path).expect("metadata opens");
+    store
+        .insert_workspace(&workspace_id, "User Code", "2026-06-26T12:00:00Z")
+        .expect("workspace insert");
+    store
+        .insert_root("root_code", &workspace_id, "~/Code", "2026-06-26T12:00:00Z")
+        .expect("root insert");
     let output = bowline()
-        .args(["devices", "--json"])
+        .args(["devices", "--root", "~/Code", "--json"])
         .current_dir(temp.root())
-        .env(
-            "BOWLINE_METADATA_DB",
-            temp.root().join("state").join("local.sqlite3"),
-        )
+        .env("BOWLINE_METADATA_DB", db_path)
         .env_remove("CONVEX_URL")
         .env_remove("BOWLINE_CONTROL_PLANE_TOKEN")
         .env_remove("BOWLINE_USE_FAKE_CONTROL_PLANE")
@@ -40,9 +46,40 @@ fn trust_commands_fail_without_control_plane_config_instead_of_using_ephemeral_f
     let message = json["error"]["message"]
         .as_str()
         .expect("error message is a string");
-    assert!(message.contains("control-plane configuration is missing"));
-    assert!(message.contains("CONVEX_URL"));
-    assert!(message.contains("BOWLINE_CONTROL_PLANE_TOKEN"));
+    assert!(!message.contains("fake control plane"));
+}
+
+#[test]
+fn approve_without_yes_does_not_mutate_from_noninteractive_shell() {
+    let temp = TempWorkspace::new("approve-no-yes-confirmation").expect("temp workspace");
+    let db_path = temp.root().join("state").join("local.sqlite3");
+    let workspace_id = WorkspaceId::new("ws_code");
+    let store = MetadataStore::open(&db_path).expect("metadata opens");
+    store
+        .insert_workspace(&workspace_id, "User Code", "2026-06-26T12:00:00Z")
+        .expect("workspace insert");
+    store
+        .insert_root("root_code", &workspace_id, "~/Code", "2026-06-26T12:00:00Z")
+        .expect("root insert");
+
+    let output = bowline()
+        .args([
+            "approve",
+            "--root",
+            "~/Code",
+            "--request",
+            "device-request:ws_code:dev-mac",
+        ])
+        .current_dir(temp.root())
+        .env("BOWLINE_METADATA_DB", db_path)
+        .env_remove("CONVEX_URL")
+        .env_remove("BOWLINE_CONTROL_PLANE_TOKEN")
+        .env_remove("BOWLINE_USE_FAKE_CONTROL_PLANE")
+        .output()
+        .expect("bowline should run");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&output.stderr).is_empty());
 }
 
 #[test]

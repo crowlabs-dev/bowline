@@ -23,11 +23,12 @@ pub(super) fn resolve_scope(
     requested_path: Option<&str>,
     workspace_scope: bool,
 ) -> Result<ResolvedScope, LocalStatusError> {
-    let workspace_id = store.current_workspace()?.map(|record| record.id);
+    let workspace = workspace_for_requested_path(store, requested_path)?;
+    let workspace_id = workspace.as_ref().map(|record| record.id.clone());
     let project = if workspace_scope {
         None
-    } else if let Some(path) = requested_path {
-        store.current_project_by_path(path)?
+    } else if let (Some(workspace), Some(path)) = (workspace.as_ref(), requested_path) {
+        store.project_by_path(&workspace.id, path)?
     } else {
         None
     };
@@ -37,4 +38,19 @@ pub(super) fn resolve_scope(
         project_id: project.as_ref().map(|record| record.id.clone()),
         project_path: project.map(|record| record.path),
     })
+}
+
+pub(super) fn workspace_for_requested_path(
+    store: &MetadataStore,
+    requested_path: Option<&str>,
+) -> Result<Option<WorkspaceRecord>, LocalStatusError> {
+    let Some(path) = requested_path else {
+        return store.current_workspace().map_err(Into::into);
+    };
+    let workspace = store.workspace_by_path(path)?;
+    if workspace.is_some() || path == "~" || path.starts_with("~/") || Path::new(path).is_absolute()
+    {
+        return Ok(workspace);
+    }
+    store.current_workspace().map_err(Into::into)
 }

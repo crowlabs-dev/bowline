@@ -64,6 +64,37 @@ pub(super) fn abbreviate_requested_path(path: &str) -> String {
     format!("~/{}", relative.display())
 }
 
+pub(super) fn shell_word(value: &str) -> String {
+    if value == "~" {
+        return "~".to_string();
+    }
+    if let Some(rest) = value.strip_prefix("~/") {
+        if rest.is_empty() {
+            return "~/".to_string();
+        }
+        if shell_safe_word(rest) {
+            return format!("~/{rest}");
+        }
+        return format!("~/{}", shell_quote(rest));
+    }
+    if shell_safe_word(value) {
+        return value.to_string();
+    }
+    shell_quote(value)
+}
+
+fn shell_safe_word(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '/' | '.' | '_' | '-' | ':' | '=' | '+' | '@' | '%')
+        })
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r#"'"'"'"#))
+}
+
 pub(super) fn print_json(value: &impl serde::Serialize) {
     println!(
         "{}",

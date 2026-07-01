@@ -20,7 +20,12 @@ fn phase8_env_and_setup_prewarm_do_not_leak_or_sync_generated_state() {
     let db_path = temp.root().join(".state").join("local.sqlite3");
 
     let init = run_bowline_with_env(
-        &["init", code_root.to_str().expect("code root"), "--json"],
+        &[
+            "init",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--json",
+        ],
         &[
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
             ("BOWLINE_GENERATED_AT", "2026-06-25T12:00:00Z".to_string()),
@@ -31,7 +36,14 @@ fn phase8_env_and_setup_prewarm_do_not_leak_or_sync_generated_state() {
     assert!(!init_stdout.contains("super-secret-value"));
 
     let status = run_bowline_with_env(
-        &["status", web_dir.to_str().expect("web dir"), "--json"],
+        &[
+            "status",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--project",
+            "apps/web",
+            "--json",
+        ],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
     assert!(status.status.success());
@@ -78,7 +90,14 @@ fn phase8_env_and_setup_prewarm_do_not_leak_or_sync_generated_state() {
     );
 
     let final_status = run_bowline_with_env(
-        &["status", web_dir.to_str().expect("web dir"), "--json"],
+        &[
+            "status",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--project",
+            "apps/web",
+            "--json",
+        ],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
     assert!(final_status.status.success());
@@ -92,7 +111,7 @@ fn phase8_env_and_setup_prewarm_do_not_leak_or_sync_generated_state() {
 fn status_watch_json_emits_initial_frame() {
     let db_path = unique_db("watch-status");
     let mut child = bowline()
-        .args(["status", "--watch", "--json"])
+        .args(["status", "--root", "~/Code", "--watch", "--json"])
         .env("BOWLINE_METADATA_DB", db_path.display().to_string())
         .stdout(Stdio::piped())
         .spawn()
@@ -122,7 +141,7 @@ fn status_watch_json_emits_sync_queue_change_frame() {
     let db_path = unique_db("watch-status-sync-queue");
     seed_sync_queue_workspace(&db_path);
     let mut child = bowline()
-        .args(["status", "--watch", "--json"])
+        .args(["status", "--root", "~/Code", "--watch", "--json"])
         .env("BOWLINE_METADATA_DB", db_path.display().to_string())
         .stdout(Stdio::piped())
         .spawn()
@@ -157,8 +176,10 @@ fn status_watch_json_emits_sync_queue_change_frame() {
 fn status_watch_human_emits_initial_frame() {
     let db_path = unique_db("watch-status-human");
     let mut child = bowline()
-        .args(["status", "--watch"])
+        .args(["status", "--root", "~/Code", "--watch"])
         .env("BOWLINE_METADATA_DB", db_path.display().to_string())
+        .env("BOWLINE_GENERATED_AT", "2026-06-24T12:00:00Z")
+        .env("TERM", "xterm-256color")
         .stdout(Stdio::piped())
         .spawn()
         .expect("bowline status watch should start");
@@ -188,7 +209,7 @@ fn status_json_reports_daemon_component_degradation_from_metadata() {
     seed_daemon_component_status(&db_path);
 
     let output = run_bowline_with_env(
-        &["status", "--json"],
+        &["status", "--root", "~/Code", "--json"],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
 
@@ -208,7 +229,7 @@ fn status_json_reports_daemon_component_degradation_from_metadata() {
 fn status_json_derives_safe_actions_from_status() {
     let db_path = unique_db("actions-missing-status");
     let output = run_bowline_with_env(
-        &["status", "--json"],
+        &["status", "--root", "~/Code", "--json"],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
 
@@ -227,13 +248,13 @@ fn status_json_derives_safe_actions_from_status() {
 fn tui_noninteractive_falls_back_to_actions_output() {
     let db_path = unique_db("tui-fallback");
     let output = run_bowline_with_env(
-        &["tui"],
+        &["tui", "--root", "~/Code"],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("tui fallback should be utf8");
-    assert!(stdout.contains("Actions: Attention"));
+    assert!(stdout.contains("NEEDS YOU"));
     assert!(stdout.contains("Initialize ~/Code when ready"));
 }
 
@@ -247,7 +268,10 @@ fn tui_json_reports_typed_usage_error() {
     assert_eq!(json["command"], "tui");
     assert_eq!(json["status"], "usage-error");
     assert_eq!(json["error"]["code"], "usage_error");
-    assert_eq!(json["nextActions"][0]["command"], "bowline status --json");
+    assert_eq!(
+        json["nextActions"][0]["command"],
+        "bowline tui --root ~/Code"
+    );
 }
 
 #[test]
@@ -267,7 +291,8 @@ fn resolve_tui_noninteractive_falls_back_to_resolve_output() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("resolve output should be utf8");
-    assert!(stdout.contains("Resolve: 1 unresolved conflict bundle(s) found"));
+    assert!(stdout.contains("Resolve"));
+    assert!(stdout.contains("1 unresolved conflict bundle(s) found"));
     assert!(stdout.contains("conflict_tui"));
 }
 
@@ -275,7 +300,7 @@ fn resolve_tui_noninteractive_falls_back_to_resolve_output() {
 fn events_json_reports_empty_history_for_missing_metadata() {
     let db_path = unique_db("missing-events");
     let output = run_bowline_with_env(
-        &["events", "--json"],
+        &["events", "--root", "~/Code", "--json"],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
 
@@ -298,7 +323,14 @@ fn events_json_filters_to_requested_project() {
     seed_two_project_events_with_root(&db_path, &code_root.display().to_string());
 
     let output = run_bowline_with_env_in_dir(
-        &["events", "src/index.ts", "--json"],
+        &[
+            "events",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--project",
+            "apps/web/src/index.ts",
+            "--json",
+        ],
         &[
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
             ("HOME", home.display().to_string()),
@@ -321,7 +353,7 @@ fn events_workspace_json_includes_all_projects() {
     seed_two_project_events(&db_path);
 
     let output = run_bowline_with_env(
-        &["events", "--workspace", "--json"],
+        &["events", "--root", "~/Code", "--json"],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
 
@@ -343,7 +375,14 @@ fn events_default_path_uses_raw_cwd_for_absolute_root_project_scope() {
     seed_two_project_events_with_root(&db_path, &code_root.display().to_string());
 
     let output = run_bowline_with_env_in_dir(
-        &["events", "--json"],
+        &[
+            "events",
+            "--root",
+            code_root.to_str().expect("code root"),
+            "--project",
+            "apps/web",
+            "--json",
+        ],
         &[
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
             ("HOME", home.display().to_string()),
@@ -372,7 +411,14 @@ fn events_default_path_expands_tilde_root_for_project_scope() {
     seed_two_project_events(&db_path);
 
     let output = run_bowline_with_env_in_dir(
-        &["events", "--json"],
+        &[
+            "events",
+            "--root",
+            "~/Code",
+            "--project",
+            "apps/web",
+            "--json",
+        ],
         &[
             ("BOWLINE_METADATA_DB", db_path.display().to_string()),
             ("HOME", home.display().to_string()),
@@ -396,7 +442,7 @@ fn events_json_reports_corrupt_metadata_as_command_error() {
     fs::write(&db_path, b"not sqlite").expect("corrupt db");
 
     let output = run_bowline_with_env(
-        &["events", "--json"],
+        &["events", "--root", "~/Code", "--json"],
         &[("BOWLINE_METADATA_DB", db_path.display().to_string())],
     );
 

@@ -113,7 +113,7 @@ pub(super) fn print_init(args: InitArgs, json: bool) -> ExitCode {
     let generated_at = generated_at();
     let options = InitOptions {
         db_path: metadata_db_path(),
-        requested_root: args.root.map(resolve_explicit_path),
+        requested_root: Some(resolve_explicit_path(args.root)),
         generated_at: generated_at.clone(),
     };
 
@@ -269,7 +269,7 @@ pub(super) fn attach_first_device_trust_if_available(
     if !runtime::passive_secret_store_probe_allowed() {
         output.next_actions.push(SafeAction {
             label: "Log in before enabling workspace sync".to_string(),
-            command: Some("bowline login".to_string()),
+            command: Some(root_command("bowline login --root", &output.root)),
         });
         return None;
     }
@@ -277,7 +277,7 @@ pub(super) fn attach_first_device_trust_if_available(
     let Ok(key_store) = runtime::key_store() else {
         output.next_actions.push(SafeAction {
             label: "Check local secret store before enabling sync".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some(status_command(&output.root)),
         });
         return None;
     };
@@ -291,7 +291,7 @@ pub(super) fn attach_first_device_trust_if_available(
         Ok(None) | Err(_) => {
             output.next_actions.push(SafeAction {
                 label: "Log in before enabling workspace sync".to_string(),
-                command: Some("bowline login".to_string()),
+                command: Some(root_command("bowline login --root", &output.root)),
             });
             return None;
         }
@@ -300,7 +300,7 @@ pub(super) fn attach_first_device_trust_if_available(
     let Ok(control_plane) = runtime::control_plane() else {
         output.next_actions.push(SafeAction {
             label: "Check control-plane connectivity before enabling sync".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some(status_command(&output.root)),
         });
         return None;
     };
@@ -311,7 +311,7 @@ pub(super) fn attach_first_device_trust_if_available(
         Err(error) => {
             output.next_actions.push(SafeAction {
                 label: format!("Trust setup unavailable: {error}"),
-                command: Some("bowline status".to_string()),
+                command: Some(status_command(&output.root)),
             });
             return None;
         }
@@ -326,7 +326,7 @@ pub(super) fn attach_first_device_trust_if_available(
         {
             output.next_actions.push(SafeAction {
                 label: "Inspect workspace status".to_string(),
-                command: Some("bowline status".to_string()),
+                command: Some(status_command(&output.root)),
             });
             return None;
         }
@@ -348,13 +348,13 @@ pub(super) fn attach_first_device_trust_if_available(
                         Ok(_) => {
                             output.next_actions.push(SafeAction {
                                 label: "Inspect workspace status".to_string(),
-                                command: Some("bowline status".to_string()),
+                                command: Some(status_command(&output.root)),
                             });
                         }
                         Err(error) => {
                             output.next_actions.push(SafeAction {
                                 label: format!("Device grant not accepted: {error}"),
-                                command: Some("bowline status".to_string()),
+                                command: Some(status_command(&output.root)),
                             });
                         }
                     }
@@ -366,7 +366,7 @@ pub(super) fn attach_first_device_trust_if_available(
                             "Approve {} with code {} on a trusted device",
                             request.device_name, request.matching_code
                         ),
-                        command: Some(format!("bowline approve {}", request.request_id)),
+                        command: None,
                     });
                     return Some(request.request_id.clone());
                 }
@@ -394,14 +394,14 @@ pub(super) fn attach_first_device_trust_if_available(
                         "Approve {} with code {} on a trusted device",
                         request.device_name, request.matching_code
                     ),
-                    command: Some(format!("bowline approve {}", request.request_id.as_str())),
+                    command: None,
                 });
                 return Some(request_id);
             }
             Err(error) => {
                 output.next_actions.push(SafeAction {
                     label: format!("Device approval request not created: {error}"),
-                    command: Some("bowline status".to_string()),
+                    command: Some(status_command(&output.root)),
                 });
             }
         }
@@ -426,11 +426,19 @@ pub(super) fn attach_first_device_trust_if_available(
         Err(error) => {
             output.next_actions.push(SafeAction {
                 label: format!("Trust root not created: {error}"),
-                command: Some("bowline status".to_string()),
+                command: Some(status_command(&output.root)),
             });
         }
     }
     None
+}
+
+fn status_command(root: &str) -> String {
+    root_command("bowline status --root", root)
+}
+
+fn root_command(prefix: &str, root: &str) -> String {
+    format!("{prefix} {}", io_helpers::shell_word(root))
 }
 
 pub(super) fn wait_for_device_grant(
@@ -438,7 +446,9 @@ pub(super) fn wait_for_device_grant(
     request_id: String,
     generated_at: String,
 ) -> ExitCode {
-    println!("Waiting for approval. On a trusted device, run `bowline approve`.");
+    println!(
+        "Waiting for approval. On a trusted device, run `bowline approve --root <path> --request {request_id}`."
+    );
     let control_plane = match runtime::control_plane() {
         Ok(control_plane) => control_plane,
         Err(error) => {
@@ -472,7 +482,7 @@ pub(super) fn wait_for_device_grant(
                     print_runtime_error(
                         CommandName::Login,
                         generated_at,
-                        "timed out waiting for device approval; run `bowline login --no-poll` to leave the request pending",
+                        "timed out waiting for device approval; run `bowline login --root <path> --no-poll` to leave the request pending",
                         false,
                     );
                     return ExitCode::from(EXIT_RUNTIME);

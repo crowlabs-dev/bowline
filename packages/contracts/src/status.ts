@@ -7,7 +7,11 @@ import type {
   ProjectId,
   SnapshotId,
 } from "./ids";
-import type { AccessFlag, MaterializationMode, PathClassification } from "./policy";
+import type {
+  AccessFlag,
+  MaterializationMode,
+  PathClassification,
+} from "./policy";
 import type { EventName } from "./event-names";
 
 export const STATUS_LEVELS = ["healthy", "attention", "limited"] as const;
@@ -36,7 +40,8 @@ export type StatusItemKind =
   | "metadata"
   | "materialization"
   | "network"
-  | "index";
+  | "index"
+  | "update";
 
 export type StatusSubjectKind =
   | "workspace"

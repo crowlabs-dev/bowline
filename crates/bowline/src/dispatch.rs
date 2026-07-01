@@ -26,9 +26,11 @@ pub(super) fn run(cli: Cli) -> ExitCode {
             print_contract(cli.json);
             ExitCode::SUCCESS
         }
+        Command::Update(args) => print_update(args, cli.json),
         Command::Login(args) => print_login(args, cli.json),
         Command::Logout => logout::print_logout(cli.json),
         Command::Approve(args) => print_approve(args, cli.json),
+        Command::Deny(args) => print_deny(args, cli.json),
         Command::Revoke(args) => print_revoke(args, cli.json),
         Command::Init(args) => print_init(args, cli.json),
         Command::Prewarm(args) => print_prewarm(args, cli.json),
@@ -74,7 +76,9 @@ pub(super) fn run(cli: Cli) -> ExitCode {
         }
         Command::Daemon(DaemonCommand::Restart) => print_daemon_service_restart(cli.json),
         Command::Daemon(DaemonCommand::Uninstall) => print_daemon_service_uninstall(cli.json),
-        Command::DiagnosticsCollect => print_diagnostics_collect(&cli.socket, cli.json),
+        Command::DiagnosticsCollect(selection) => {
+            print_diagnostics_collect(selection, &cli.socket, cli.json)
+        }
         Command::CommandUsageError(error) => {
             print_command_usage_error(error, generated_at(), cli.json);
             ExitCode::from(EXIT_USAGE)

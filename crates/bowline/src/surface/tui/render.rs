@@ -131,6 +131,7 @@ fn state_items(model: &TuiModel) -> Vec<ListItem<'_>> {
 fn empty_state_text(tone: TuiTone) -> &'static str {
     match tone {
         TuiTone::Healthy => "Nothing needs action right now.",
+        TuiTone::Preparing => "Getting set up; nothing needs you yet.",
         TuiTone::Attention => "No safe action is available yet; inspect status for details.",
         TuiTone::Limited => "Some capabilities are unavailable; inspect status for details.",
     }
@@ -211,6 +212,7 @@ fn footer_text(model: &TuiModel, width: u16) -> Text<'_> {
 fn tone_style(tone: TuiTone) -> Style {
     let color = match tone {
         TuiTone::Healthy => Color::Green,
+        TuiTone::Preparing => Color::Cyan,
         TuiTone::Attention => Color::Yellow,
         TuiTone::Limited => Color::Red,
     };
@@ -220,6 +222,7 @@ fn tone_style(tone: TuiTone) -> Style {
 fn status_hint(tone: TuiTone) -> &'static str {
     match tone {
         TuiTone::Healthy => "Nothing is blocking the current workspace.",
+        TuiTone::Preparing => "Getting set up; nothing needs you.",
         TuiTone::Attention => "A decision or repair path needs attention.",
         TuiTone::Limited => "Some capabilities are unavailable; inspect the safe actions.",
     }

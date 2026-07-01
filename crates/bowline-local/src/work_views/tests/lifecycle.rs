@@ -46,6 +46,79 @@ fn lifecycle_transitions_hide_then_restore_retained_work_view() {
 }
 
 #[test]
+fn lifecycle_and_cleanup_actions_use_selected_workspace_root() {
+    let (temp, db_path) = seeded_store("phase9-lifecycle-custom-root");
+    let workspace_id = WorkspaceId::new("ws_code");
+    let spaced_root = temp.root().join("Code With Spaces");
+    let project_path = spaced_root.join("apps/web");
+    fs::create_dir_all(&project_path).expect("project");
+    let store = MetadataStore::open(&db_path).expect("metadata");
+    store
+        .insert_root(
+            "root_code",
+            &workspace_id,
+            &spaced_root.display().to_string(),
+            "2026-06-25T00:00:01Z",
+        )
+        .expect("root");
+    drop(store);
+
+    create_work_view(WorkonOptions {
+        db_path: Some(db_path.clone()),
+        project_path: project_path.display().to_string(),
+        name: "custom-root".to_string(),
+        owner_device_id: None,
+        generated_at: now(),
+    })
+    .expect("work view");
+    let expected_status = format!("bowline status --root '{}' --all", spaced_root.display());
+
+    let discarded = discard_work_view(WorkSelectorOptions {
+        db_path: Some(db_path.clone()),
+        selector: "custom-root".to_string(),
+        generated_at: now(),
+    })
+    .expect("discard");
+    assert_eq!(
+        discarded.next_actions[0].command.as_deref(),
+        Some(expected_status.as_str())
+    );
+
+    let restored = restore_work_view(WorkSelectorOptions {
+        db_path: Some(db_path.clone()),
+        selector: "custom-root".to_string(),
+        generated_at: now(),
+    })
+    .expect("restore");
+    assert_eq!(
+        restored.next_actions[0].command.as_deref(),
+        Some(expected_status.as_str())
+    );
+
+    let accepted = accept_work_view(WorkSelectorOptions {
+        db_path: Some(db_path.clone()),
+        selector: "custom-root".to_string(),
+        generated_at: now(),
+    })
+    .expect("accept");
+    assert_eq!(
+        accepted.next_actions[0].command.as_deref(),
+        Some(expected_status.as_str())
+    );
+
+    let cleanup = cleanup_work_views(WorkCleanupOptions {
+        db_path: Some(db_path),
+        apply: false,
+        generated_at: now(),
+    })
+    .expect("cleanup");
+    assert_eq!(
+        cleanup.next_actions[0].command.as_deref(),
+        Some(expected_status.as_str())
+    );
+}
+
+#[test]
 fn discard_work_view_marks_matching_agent_lease_discarded() {
     let (temp, db_path) = seeded_store("phase9-discard-agent-lease");
     let project_path = temp.root().join("Code/apps/web");

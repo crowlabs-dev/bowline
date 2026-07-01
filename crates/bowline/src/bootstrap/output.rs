@@ -8,6 +8,7 @@ pub(super) fn output_base(
     BootstrapOutputBase {
         host: args.host.clone(),
         root: args.root.clone(),
+        local_root: runtime::active_workspace_root(),
         generated_at: generated_at.to_string(),
         steps,
         agent_handoff: requested_agent_handoff(args),
@@ -86,7 +87,8 @@ pub(super) fn bootstrap_next_actions(
 ) -> Vec<SafeAction> {
     let mut actions = Vec::new();
     let root = remote_path_arg(&base.root);
-    let remote_status_command = ssh_command(&base.host, &format!("bowline status {root} --json"));
+    let remote_status_command =
+        ssh_command(&base.host, &format!("bowline status --root {root} --json"));
 
     if trusted {
         actions.push(SafeAction {
@@ -151,6 +153,7 @@ pub(super) fn blocked_step_actions(
     remote_status: &WorkspaceStatus,
 ) -> Vec<SafeAction> {
     let root = remote_path_arg(&base.root);
+    let local_root = remote_path_arg(base.local_root.as_deref().unwrap_or("~/Code"));
     let retry = SafeAction {
         label: "Retry remote bootstrap".to_string(),
         command: Some(format!(
@@ -164,25 +167,31 @@ pub(super) fn blocked_step_actions(
         "request" | "parse" | "compare" | "accept" => vec![
             SafeAction {
                 label: "Inspect remote device requests".to_string(),
-                command: Some(ssh_command(&base.host, "bowline status --json")),
+                command: Some(ssh_command(
+                    &base.host,
+                    &format!("bowline status --root {root} --json"),
+                )),
             },
             retry,
         ],
         "approve" => vec![
             SafeAction {
                 label: "Inspect local device requests".to_string(),
-                command: Some("bowline status --json".to_string()),
+                command: Some(format!("bowline status --root {local_root} --json")),
             },
             retry,
         ],
         "trust" => vec![
             SafeAction {
                 label: "Verify local device trust".to_string(),
-                command: Some("bowline status --json".to_string()),
+                command: Some(format!("bowline status --root {local_root} --json")),
             },
             SafeAction {
                 label: "Verify remote device trust".to_string(),
-                command: Some(ssh_command(&base.host, "bowline status --json")),
+                command: Some(ssh_command(
+                    &base.host,
+                    &format!("bowline status --root {root} --json"),
+                )),
             },
             retry,
         ],
@@ -216,7 +225,7 @@ pub(super) fn blocked_step_actions(
                 label: "Inspect remote status".to_string(),
                 command: Some(ssh_command(
                     &base.host,
-                    &format!("bowline status {root} --json"),
+                    &format!("bowline status --root {root} --json"),
                 )),
             },
             retry,

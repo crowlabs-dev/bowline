@@ -28,8 +28,8 @@ pub(super) fn print_events(args: EventsArgs, json: bool) -> ExitCode {
     let generated_at = generated_at();
     let options = EventsOptions {
         db_path: metadata_db_path(),
-        requested_path: requested_path(args.path),
-        workspace_scope: args.workspace,
+        requested_path: selected_workspace_path(args.selection),
+        workspace_scope: false,
         generated_at: generated_at.clone(),
         limit: args.limit,
     };

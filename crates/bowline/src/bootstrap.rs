@@ -33,6 +33,7 @@ pub struct BootstrapSshArgs {
 struct BootstrapOutputBase {
     host: String,
     root: String,
+    local_root: Option<String>,
     generated_at: String,
     steps: Vec<BootstrapStep>,
     agent_handoff: Option<BootstrapAgentHandoff>,

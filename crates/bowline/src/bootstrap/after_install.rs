@@ -68,6 +68,28 @@ where
         );
     }
 
+    match ssh::prepare_remote_root(runner, &options) {
+        Ok(_) => steps.push(step(
+            "prepare-root",
+            BootstrapStepState::Completed,
+            "Remote real directory root is initialized and accepted.",
+        )),
+        Err(error) => {
+            steps.push(step(
+                "prepare-root",
+                BootstrapStepState::Blocked,
+                format!("Remote root preparation failed: {error}"),
+            ));
+            return bootstrap_output(
+                output_base(&args, &generated_at, steps),
+                None,
+                None,
+                false,
+                None,
+            );
+        }
+    }
+
     let mut existing_remote_device =
         existing_trusted_remote_device(runner, &options, &workspace_id);
     if existing_remote_device.is_some()
@@ -284,28 +306,6 @@ where
             };
         (Some(remote_request), verified_remote_device)
     };
-
-    match ssh::prepare_remote_root(runner, &options) {
-        Ok(_) => steps.push(step(
-            "prepare-root",
-            BootstrapStepState::Completed,
-            "Remote real directory root is initialized and accepted.",
-        )),
-        Err(error) => {
-            steps.push(step(
-                "prepare-root",
-                BootstrapStepState::Blocked,
-                format!("Remote root preparation failed: {error}"),
-            ));
-            return bootstrap_output(
-                output_base(&args, &generated_at, steps),
-                remote_request.clone(),
-                Some(verified_remote_device),
-                true,
-                None,
-            );
-        }
-    }
 
     match ssh::publish_default_metadata(runner, &options) {
         Ok(_) => steps.push(step(

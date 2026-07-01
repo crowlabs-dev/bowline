@@ -1,4 +1,8 @@
-import type { DeviceApprovalRequest, DeviceFingerprint, DeviceRecord } from "./devices";
+import type {
+  DeviceApprovalRequest,
+  DeviceFingerprint,
+  DeviceRecord,
+} from "./devices";
 import type { WorkspaceStatus, SafeAction } from "./status";
 import type { CommandOutputBase } from "./commands";
 

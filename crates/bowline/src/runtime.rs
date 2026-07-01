@@ -75,7 +75,7 @@ pub fn control_plane() -> Result<Box<dyn ControlPlaneClient>, String> {
     }
 
     Err(
-        "control-plane configuration is missing; run `bowline login` or set CONVEX_URL and BOWLINE_CONTROL_PLANE_TOKEN"
+        "control-plane configuration is missing; run `bowline login --root <path>` or set CONVEX_URL and BOWLINE_CONTROL_PLANE_TOKEN"
             .to_string(),
     )
 }
@@ -438,6 +438,19 @@ fn local_accepted_workspace_id() -> Option<WorkspaceId> {
 pub fn active_workspace_root() -> Option<String> {
     let store = MetadataStore::open(selected_metadata_database_path()?).ok()?;
     store.current_workspace_root().ok().flatten()
+}
+
+pub fn workspace_id_for_root(root: &str) -> Result<WorkspaceId, String> {
+    let db_path = selected_metadata_database_path()
+        .ok_or_else(|| format!("no local metadata database; run `bowline login --root {root}`"))?;
+    let store = MetadataStore::open(db_path).map_err(|error| error.to_string())?;
+    store
+        .workspace_by_accepted_root(root)
+        .map_err(|error| error.to_string())?
+        .map(|workspace| workspace.id)
+        .ok_or_else(|| {
+            format!("workspace root is not initialized; run `bowline login --root {root}`")
+        })
 }
 
 fn hosted_control_plane_configured() -> bool {

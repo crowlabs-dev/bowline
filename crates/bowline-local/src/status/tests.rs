@@ -16,7 +16,7 @@ use crate::{
 use super::{
     EventsOptions, LocalStatusError, base_status_item, compose_events, compose_status,
     initial_watch_frame, missing_metadata_status, redact_workspace_path, redacted_status_snapshot,
-    render_events_human, render_status_human,
+    render_events_human,
 };
 
 mod compose;

@@ -39,7 +39,7 @@
   "nextActions": [
     {
       "label": "Inspect daemon status",
-      "command": "bowline status --watch",
+      "command": "bowline status --root ~/Code --watch",
       "effectCategory": "inspect",
       "targetKind": "workspace"
     }

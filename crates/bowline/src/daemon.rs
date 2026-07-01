@@ -223,9 +223,13 @@ pub(super) fn print_daemon_stop(socket: &Path, json: bool) -> ExitCode {
     }
 }
 
-pub(super) fn print_diagnostics_collect(socket: &Path, json: bool) -> ExitCode {
+pub(super) fn print_diagnostics_collect(
+    selection: WorkspaceSelection,
+    socket: &Path,
+    json: bool,
+) -> ExitCode {
     let generated_at = generated_at();
-    let bundle = diagnostics_bundle_text(socket, &generated_at);
+    let bundle = diagnostics_bundle_text(socket, &generated_at, &selection);
     let redacted = redact_setup_text(&bundle);
     if json {
         let output = DiagnosticsCollectCommandOutput {
@@ -245,7 +249,11 @@ pub(super) fn print_diagnostics_collect(socket: &Path, json: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-pub(super) fn diagnostics_bundle_text(socket: &Path, generated_at: &str) -> String {
+pub(super) fn diagnostics_bundle_text(
+    socket: &Path,
+    generated_at: &str,
+    selection: &WorkspaceSelection,
+) -> String {
     let db_path = metadata_db_path_or_default();
     let state_root = db_path
         .as_ref()
@@ -273,6 +281,14 @@ pub(super) fn diagnostics_bundle_text(socket: &Path, generated_at: &str) -> Stri
         "bowline diagnostics".to_string(),
         format!("generated_at={generated_at}"),
         format!("socket={}", socket.display()),
+        format!(
+            "requested_root={}",
+            resolve_explicit_path(selection.root.clone())
+        ),
+        format!(
+            "requested_project={}",
+            selection.project.as_deref().unwrap_or("unscoped")
+        ),
         format!("metadata_db={db_path}"),
         format!(
             "daemon_log={}",

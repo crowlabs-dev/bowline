@@ -3,6 +3,8 @@ use bowline_core::{
     status::{SafeAction, StatusLevel},
 };
 
+use crate::io_helpers::shell_word;
+
 pub fn from_status(status: &StatusCommandOutput) -> ActionsCommandOutput {
     let mut actions = status.next_actions.clone();
     for limit in &status.limits {
@@ -12,7 +14,10 @@ pub fn from_status(status: &StatusCommandOutput) -> ActionsCommandOutput {
             .find(|item| item.as_str() == "status")
             .map(|_| SafeAction {
                 label: format!("Inspect {}", limit.capability),
-                command: Some("bowline status".to_string()),
+                command: Some(format!(
+                    "bowline status --root {}",
+                    shell_word(status_root(status))
+                )),
             })
         {
             push_unique(&mut actions, action);
@@ -61,6 +66,13 @@ fn push_unique(actions: &mut Vec<SafeAction>, action: SafeAction) {
     actions.push(action);
 }
 
+fn status_root(status: &StatusCommandOutput) -> &str {
+    status
+        .resolved_workspace_root
+        .as_deref()
+        .unwrap_or("~/Code")
+}
+
 #[cfg(test)]
 mod tests {
     use bowline_core::commands::StatusCommandOutput;
@@ -73,7 +85,10 @@ mod tests {
             "../../../../tests/contracts/status/conflict.json"
         ))
         .expect("conflict status fixture should parse");
-        let rendered = crate::surface::human::render_actions(&from_status(&status));
+        let rendered = crate::surface::human::render_actions(
+            &from_status(&status),
+            &crate::surface::style::Presentation::plain(),
+        );
 
         assert_eq!(
             rendered,
@@ -92,12 +107,14 @@ mod tests {
             pending_actions
                 .iter()
                 .any(|action| action.command.as_deref()
-                    == Some("bowline approve device-request:ws_code:dev-mac"))
+                    == Some(
+                        "bowline approve --root ~/Code --request device-request:ws_code:dev-mac"
+                    ))
         );
         assert!(
             pending_actions
                 .iter()
-                .any(|action| action.command.as_deref() == Some("bowline status"))
+                .any(|action| action.command.as_deref() == Some("bowline status --root ~/Code"))
         );
     }
 
@@ -109,7 +126,7 @@ mod tests {
         .expect("healthy status fixture should parse");
         status.next_actions.push(bowline_core::status::SafeAction {
             label: "Inspect sync status".to_string(),
-            command: Some("bowline status".to_string()),
+            command: Some("bowline status --root ~/Code".to_string()),
         });
         status.limits.push(bowline_core::status::LimitedCapability {
             capability: "sync".to_string(),
@@ -122,7 +139,7 @@ mod tests {
         assert_eq!(
             actions
                 .iter()
-                .filter(|action| action.command.as_deref() == Some("bowline status"))
+                .filter(|action| action.command.as_deref() == Some("bowline status --root ~/Code"))
                 .count(),
             1
         );

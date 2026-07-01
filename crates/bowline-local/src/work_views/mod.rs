@@ -1,10 +1,10 @@
 use std::{error::Error, fmt, io, path::PathBuf};
 
 use bowline_control_plane::{ControlPlaneError, WorkViewUpdateError};
-use bowline_core::ids::DeviceId;
+use bowline_core::ids::{DeviceId, WorkspaceId};
 use bowline_storage::{ByteStoreError, PackfileError};
 
-use crate::metadata::MetadataError;
+use crate::metadata::{MetadataError, MetadataStore};
 
 mod cleanup;
 mod create_list;
@@ -27,6 +27,47 @@ pub(crate) use paths::expand_display_path;
 
 #[cfg(test)]
 use overlay_sync::{overlay_delta_kind_name, overlay_deltas_for_upload};
+
+pub(super) fn status_all_command(
+    store: &MetadataStore,
+    workspace_id: &WorkspaceId,
+) -> Result<String, WorkViewError> {
+    let root = store
+        .workspace_root(workspace_id)?
+        .ok_or(WorkViewError::MissingWorkspaceRoot)?;
+    Ok(format!("bowline status --root {} --all", shell_word(&root)))
+}
+
+fn shell_word(value: &str) -> String {
+    if value == "~" {
+        return "~".to_string();
+    }
+    if let Some(rest) = value.strip_prefix("~/") {
+        if rest.is_empty() {
+            return "~/".to_string();
+        }
+        if shell_safe_word(rest) {
+            return format!("~/{rest}");
+        }
+        return format!("~/{}", shell_quote(rest));
+    }
+    if shell_safe_word(value) {
+        return value.to_string();
+    }
+    shell_quote(value)
+}
+
+fn shell_safe_word(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '/' | '.' | '_' | '-' | ':' | '=' | '+' | '@' | '%')
+        })
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r#"'"'"'"#))
+}
 
 #[derive(Debug, Clone)]
 pub struct WorkonOptions {

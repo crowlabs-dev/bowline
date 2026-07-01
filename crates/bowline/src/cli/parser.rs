@@ -7,6 +7,7 @@ pub(super) fn parse_positionals(args: &[String]) -> Command {
         [command, rest @ ..] if command == "help" => Command::Help(Some(rest.to_vec())),
         [command] if command == "version" => Command::Version,
         [command] if command == "contract" => Command::Contract,
+        [command, rest @ ..] if command == "update" => parse_update_command(rest),
         [command, rest @ ..] if command == "login" => parse_login_command(rest),
         [command] if command == "logout" => Command::Logout,
         [command, rest @ ..] if command == "logout" => usage_error(
@@ -14,6 +15,7 @@ pub(super) fn parse_positionals(args: &[String]) -> Command {
             format!("unexpected bowline logout argument `{}`", rest[0]),
         ),
         [command, rest @ ..] if command == "approve" => parse_approve_command(rest),
+        [command, rest @ ..] if command == "deny" => parse_deny_command(rest),
         [command, rest @ ..] if command == "revoke" => parse_revoke_command(rest),
         [command, rest @ ..] if command == "recover" => parse_recovery_command(rest),
         [command, rest @ ..] if command == "init" => parse_init_command(rest),
@@ -106,8 +108,12 @@ pub(super) fn parse_positionals(args: &[String]) -> Command {
             CommandName::DaemonStatus,
             "expected `bowline daemon start`, `bowline daemon stop`, `bowline daemon status`, `bowline daemon install`, `bowline daemon restart`, or `bowline daemon uninstall`",
         ),
-        [command, subcommand] if command == "diagnostics" && subcommand == "collect" => {
-            Command::DiagnosticsCollect
+        [command, subcommand, rest @ ..] if command == "diagnostics" && subcommand == "collect" => {
+            match parse_selection_only(CommandName::DiagnosticsCollect, "diagnostics collect", rest)
+            {
+                Ok(selection) => Command::DiagnosticsCollect(selection),
+                Err(error) => *error,
+            }
         }
         [command, ..] if command == "diagnostics" => usage_error(
             CommandName::DiagnosticsCollect,
@@ -115,6 +121,37 @@ pub(super) fn parse_positionals(args: &[String]) -> Command {
         ),
         [command, ..] => Command::Unknown(command.clone()),
     }
+}
+
+pub(super) fn parse_update_command(args: &[String]) -> Command {
+    let mut check = false;
+    let mut version = None;
+    let mut index = 0_usize;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--check" => check = true,
+            "--version" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return usage_error(CommandName::Update, "missing value for --version");
+                };
+                version = Some(value.clone());
+            }
+            value if value.starts_with("--version=") => {
+                version = Some(value.trim_start_matches("--version=").to_string());
+            }
+            unexpected => {
+                return usage_error(
+                    CommandName::Update,
+                    format!("unexpected bowline update argument `{unexpected}`"),
+                );
+            }
+        }
+        index += 1;
+    }
+
+    Command::Update(UpdateArgs { check, version })
 }
 
 pub(super) fn parse_dev_cloud_spike_command(args: &[String]) -> Command {

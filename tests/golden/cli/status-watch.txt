@@ -1,1 +1,1 @@
-#1 status Attention: bowline has not initialized local metadata yet.
+12:00:00  ▲ needs you   bowline has not initialized local metadata yet.

@@ -5,7 +5,8 @@ pub(super) fn compose_from_store(
     options: StatusOptions,
     state_root: PathBuf,
 ) -> Result<StatusCommandOutput, LocalStatusError> {
-    let Some(workspace) = store.current_workspace()? else {
+    let workspace = workspace_for_requested_path(store, options.requested_path.as_deref())?;
+    let Some(workspace) = workspace else {
         return Ok(missing_metadata_status(&options));
     };
     if store.accepted_root_count(&workspace.id)? == 0 {
@@ -22,12 +23,10 @@ pub(super) fn compose_from_store(
         .clone()
         .unwrap_or_else(|| WorkspaceId::new("ws_local_uninitialized"));
     let project_id = resolved.project_id.clone();
-    let scope = if options.workspace_scope {
+    let scope = if options.workspace_scope || project_id.is_none() {
         StatusScope::Workspace
-    } else if project_id.is_some() {
-        StatusScope::Project
     } else {
-        StatusScope::Workspace
+        StatusScope::Project
     };
     let query = resolved.event_query(50);
     let watermarks = store.scoped_event_watermarks(query)?;
@@ -91,9 +90,13 @@ pub(super) fn compose_from_store(
         attention_items.push("Other projects need attention.".to_string());
     }
     let resolved_workspace_root = store
-        .current_workspace_root()?
+        .workspace_root(&workspace_id)?
         .map(|path| display_root_path(&path))
         .or_else(|| Some("~/Code".to_string()));
+    let watch_root = resolved_workspace_root
+        .as_deref()
+        .unwrap_or("~/Code")
+        .to_string();
     if total_projects == 0 && items.is_empty() {
         let mut item = base_status_item(
             StatusItemKind::Continuity,
@@ -107,14 +110,7 @@ pub(super) fn compose_from_store(
         items.push(item);
     }
     if let Some(summary) = observed.as_ref() {
-        apply_observed_summary(
-            &workspace_id,
-            summary,
-            watermarks.sync_state == Some(ComponentState::Ready),
-            &mut items,
-            &mut attention_items,
-            &mut level,
-        );
+        apply_observed_summary(&workspace_id, summary, &mut items);
     }
     apply_env_setup_metadata(
         store,
@@ -183,7 +179,7 @@ pub(super) fn compose_from_store(
             next_actions
         } else {
             if next_actions.is_empty() {
-                next_actions.push(recent_events_action());
+                next_actions.push(recent_events_action(&watch_root));
             }
             next_actions
         },
@@ -202,11 +198,45 @@ pub(super) fn status_path_is_source_control_metadata(path: &str) -> bool {
         .any(|component| matches!(component, ".git" | ".jj" | ".hg" | ".svn"))
 }
 
-pub(super) fn recent_events_action() -> SafeAction {
+pub(super) fn recent_events_action(root: &str) -> SafeAction {
     SafeAction {
         label: "Inspect recent events".to_string(),
-        command: Some("bowline status --watch".to_string()),
+        command: Some(format!(
+            "bowline status --root {} --watch",
+            shell_word(root)
+        )),
     }
+}
+
+fn shell_word(value: &str) -> String {
+    if value == "~" {
+        return "~".to_string();
+    }
+    if let Some(rest) = value.strip_prefix("~/") {
+        if rest.is_empty() {
+            return "~/".to_string();
+        }
+        if shell_safe_word(rest) {
+            return format!("~/{rest}");
+        }
+        return format!("~/{}", shell_quote(rest));
+    }
+    if shell_safe_word(value) {
+        return value.to_string();
+    }
+    shell_quote(value)
+}
+
+fn shell_safe_word(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '/' | '.' | '_' | '-' | ':' | '=' | '+' | '@' | '%')
+        })
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r#"'"'"'"#))
 }
 
 pub(super) fn missing_metadata_status(options: &StatusOptions) -> StatusCommandOutput {
@@ -218,7 +248,11 @@ pub(super) fn missing_metadata_status(options: &StatusOptions) -> StatusCommandO
         project_id: None,
         scope: Some(StatusScope::Workspace),
         requested_path: options.requested_path.clone(),
-        resolved_workspace_root: Some("~/Code".to_string()),
+        resolved_workspace_root: options
+            .requested_path
+            .as_deref()
+            .map(display_root_path)
+            .or_else(|| Some("~/Code".to_string())),
         workspace_summary: Some(WorkspaceSummary::empty()),
         index: None,
         hydration_budget: None,
@@ -244,74 +278,29 @@ pub(super) fn missing_metadata_status(options: &StatusOptions) -> StatusCommandO
 pub(super) fn apply_observed_summary(
     workspace_id: &WorkspaceId,
     summary: &ObservedWorkspaceSummary,
-    sync_ready: bool,
     items: &mut Vec<StatusItem>,
-    attention_items: &mut Vec<String>,
-    level: &mut StatusLevel,
 ) {
-    if !sync_ready && *level == StatusLevel::Healthy {
-        *level = StatusLevel::Attention;
-        attention_items
-            .push("Workspace has been observed locally; sync has not started yet.".to_string());
-    }
-
     let mut item = base_status_item(
         StatusItemKind::Continuity,
-        if sync_ready {
-            format!(
-                "Observed {} repos, {} workspace-sync paths, {} env files, {} generated/dependency paths; sync is active.",
-                summary.repo_count,
-                summary.workspace_sync_path_count,
-                summary.env_file_count,
-                summary.generated_path_count + summary.dependency_path_count,
-            )
-        } else {
-            format!(
-                "Observed {} repos, {} workspace-sync paths, {} env files, {} generated/dependency paths; no bytes have been uploaded.",
-            summary.repo_count,
-            summary.workspace_sync_path_count,
-            summary.env_file_count,
-            summary.generated_path_count + summary.dependency_path_count,
-            )
-        }
-        .as_str(),
+        &format!(
+            "Tracking {}, {}, {}.",
+            plural_phrase(summary.repo_count, "repo", "repos"),
+            plural_phrase(summary.workspace_sync_path_count, "file", "files"),
+            plural_phrase(summary.env_file_count, "env file", "env files"),
+        ),
     );
-    item.subject = Some(StatusSubject {
-        kind: StatusSubjectKind::Workspace,
-        id: workspace_id.as_str().to_string(),
-        path: None,
-    });
+    item.subject = Some(observed_subject(workspace_id));
     items.push(item);
-
-    if summary.repo_count > 0 {
-        let mut item = base_status_item(
-            StatusItemKind::Source,
-            &format!(
-                "Git observer is advisory for {} repo(s); bowline reads local metadata only and never fetches, commits, or uses Git as sync.",
-                summary.repo_count
-            ),
-        );
-        item.subject = Some(StatusSubject {
-            kind: StatusSubjectKind::Workspace,
-            id: workspace_id.as_str().to_string(),
-            path: None,
-        });
-        items.push(item);
-    }
 
     if summary.no_remote_repo_count > 0 {
         let mut item = base_status_item(
             StatusItemKind::Source,
             &format!(
-                "{} repo(s) have no remote; bowline will still treat their files as syncable workspace state.",
-                summary.no_remote_repo_count
+                "{} without a remote; still kept as syncable workspace state.",
+                plural_phrase(summary.no_remote_repo_count, "repo", "repos"),
             ),
         );
-        item.subject = Some(StatusSubject {
-            kind: StatusSubjectKind::Workspace,
-            id: workspace_id.as_str().to_string(),
-            path: None,
-        });
+        item.subject = Some(observed_subject(workspace_id));
         items.push(item);
     }
 
@@ -319,15 +308,11 @@ pub(super) fn apply_observed_summary(
         let mut item = base_status_item(
             StatusItemKind::Source,
             &format!(
-                "{} repo(s) have local branch refs that differ from local remote-tracking refs; this is advisory only and bowline will not fetch or repair Git.",
-                summary.stale_remote_tracking_repo_count
+                "{} with local branches ahead of their tracking refs; advisory only.",
+                plural_phrase(summary.stale_remote_tracking_repo_count, "repo", "repos"),
             ),
         );
-        item.subject = Some(StatusSubject {
-            kind: StatusSubjectKind::Workspace,
-            id: workspace_id.as_str().to_string(),
-            path: None,
-        });
+        item.subject = Some(observed_subject(workspace_id));
         items.push(item);
     }
 
@@ -335,16 +320,24 @@ pub(super) fn apply_observed_summary(
         let mut item = base_status_item(
             StatusItemKind::Source,
             &format!(
-                "{} untracked file(s) were observed as workspace continuity state.",
-                summary.untracked_file_count
+                "{} not tracked by Git; kept as workspace state.",
+                plural_phrase(summary.untracked_file_count, "file", "files"),
             ),
         );
-        item.subject = Some(StatusSubject {
-            kind: StatusSubjectKind::Workspace,
-            id: workspace_id.as_str().to_string(),
-            path: None,
-        });
+        item.subject = Some(observed_subject(workspace_id));
         items.push(item);
+    }
+}
+
+pub(super) fn plural_phrase(count: u64, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
+}
+
+fn observed_subject(workspace_id: &WorkspaceId) -> StatusSubject {
+    StatusSubject {
+        kind: StatusSubjectKind::Workspace,
+        id: workspace_id.as_str().to_string(),
+        path: None,
     }
 }
 
@@ -374,9 +367,13 @@ pub(super) fn apply_env_setup_metadata(
         let mut item = base_status_item(
             StatusItemKind::Env,
             &format!(
-                "{} project env record(s) across {} file(s) are tracked; values are redacted.",
-                visible_env_records.len(),
-                source_count
+                "{} across {} tracked; values are redacted.",
+                plural_phrase(
+                    visible_env_records.len() as u64,
+                    "project env record",
+                    "project env records"
+                ),
+                plural_phrase(source_count as u64, "file", "files"),
             ),
         );
         item.subject = Some(StatusSubject {
@@ -408,8 +405,13 @@ pub(super) fn apply_env_setup_metadata(
             if *level == StatusLevel::Healthy {
                 *level = StatusLevel::Attention;
             }
+            let subject = if stale_count == 1 {
+                "record is"
+            } else {
+                "records are"
+            };
             attention_items.push(format!(
-                "{stale_count} materialized env record(s) are stale; values remain redacted."
+                "{stale_count} materialized env {subject} stale; values remain redacted."
             ));
         }
     }
@@ -583,7 +585,11 @@ pub(super) fn limited_metadata_status(
         project_id: None,
         scope: Some(StatusScope::Workspace),
         requested_path: options.requested_path.clone(),
-        resolved_workspace_root: Some("~/Code".to_string()),
+        resolved_workspace_root: options
+            .requested_path
+            .as_deref()
+            .map(display_root_path)
+            .or_else(|| Some("~/Code".to_string())),
         workspace_summary: Some(WorkspaceSummary::empty()),
         index: None,
         hydration_budget: None,
