@@ -242,6 +242,8 @@ fn is_opaque_git_path(path: &str) -> bool {
     path.split('/').any(|component| component == ".git")
 }
 
+const YAML_VALIDATION_MAX_BYTES: usize = 16 * 1024 * 1024;
+
 fn structured_merge_output_is_valid(path: &str, bytes: &[u8]) -> bool {
     match structured_format(path) {
         Some(StructuredFormat::Json) => serde_json::from_slice::<serde_json::Value>(bytes).is_ok(),
@@ -249,13 +251,39 @@ fn structured_merge_output_is_valid(path: &str, bytes: &[u8]) -> bool {
             .ok()
             .and_then(|text| text.parse::<toml::Table>().ok())
             .is_some(),
-        Some(StructuredFormat::Yaml) => serde_yml::from_slice::<serde_yml::Value>(bytes).is_ok(),
+        Some(StructuredFormat::Yaml) => yaml_merge_output_is_valid(bytes),
         Some(StructuredFormat::Xml) => std::str::from_utf8(bytes)
             .ok()
             .and_then(|text| roxmltree::Document::parse(text).ok())
             .is_some(),
         None => true,
     }
+}
+
+fn yaml_merge_output_is_valid(bytes: &[u8]) -> bool {
+    if bytes.len() > YAML_VALIDATION_MAX_BYTES {
+        return false;
+    }
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    let options = serde_saphyr::options! {
+        budget: serde_saphyr::budget! {
+            max_events: 250_000,
+            max_aliases: 1_000,
+            max_anchors: 1_000,
+            max_depth: 256,
+            max_documents: 32,
+            max_nodes: 100_000,
+            max_total_scalar_bytes: YAML_VALIDATION_MAX_BYTES,
+            max_merge_keys: 1_000,
+        },
+        alias_limits: serde_saphyr::alias_limits! {
+            max_replay_stack_depth: 32,
+            max_alias_expansions_per_anchor: 16,
+        },
+    };
+    serde_saphyr::from_str_with_options::<serde::de::IgnoredAny>(text, options).is_ok()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -322,21 +350,21 @@ fn env_keys_can_merge(path: &str, base: &[u8], local: &[u8], remote: &[u8]) -> b
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
 
-    for key in all_keys {
-        let base_value = base_values.get(&key);
-        let local_value = local_values.get(&key);
-        let remote_value = remote_values.get(&key);
+    for key in &all_keys {
+        let base_value = base_values.get(key);
+        let local_value = local_values.get(key);
+        let remote_value = remote_values.get(key);
         if local_value == remote_value {
             continue;
         }
         if local_value == base_value {
-            if remote_value.is_none() {
+            if remote_value.is_none() && key_has_multiple_occurrences(&all_keys, key) {
                 return false;
             }
             continue;
         }
         if remote_value == base_value {
-            if local_value.is_none() {
+            if local_value.is_none() && key_has_multiple_occurrences(&all_keys, key) {
                 return false;
             }
             continue;
@@ -345,6 +373,17 @@ fn env_keys_can_merge(path: &str, base: &[u8], local: &[u8], remote: &[u8]) -> b
     }
 
     true
+}
+
+fn key_has_multiple_occurrences(
+    all_keys: &std::collections::BTreeSet<(String, usize)>,
+    key: &(String, usize),
+) -> bool {
+    all_keys
+        .iter()
+        .filter(|candidate| candidate.0 == key.0)
+        .count()
+        > 1
 }
 
 fn env_values(parsed: &crate::env::ParsedEnvFile) -> BTreeMap<(String, usize), Vec<u8>> {
@@ -365,37 +404,26 @@ fn conflict_span(path: &str, base: &[u8], local: &[u8], remote: &[u8]) -> Confli
     let base_lines = line_vec(base);
     let local_lines = line_vec(local);
     let remote_lines = line_vec(remote);
-    let max_len = local_lines
-        .len()
-        .max(remote_lines.len())
-        .max(base_lines.len());
-    let first = (0..max_len)
-        .find(|index| {
-            local_lines.get(*index) != remote_lines.get(*index)
-                && (local_lines.get(*index) != base_lines.get(*index)
-                    || remote_lines.get(*index) != base_lines.get(*index))
-        })
-        .unwrap_or(0);
-    let last = (first..max_len)
-        .rfind(|index| {
-            local_lines.get(*index) != remote_lines.get(*index)
-                && (local_lines.get(*index) != base_lines.get(*index)
-                    || remote_lines.get(*index) != base_lines.get(*index))
-        })
-        .unwrap_or(first);
-    let start = (first + 1) as u32;
-    let end = (last + 1) as u32;
+    let prefix = common_prefix_len(&base_lines, &local_lines, &remote_lines);
+    let suffix = common_suffix_len(&base_lines, &local_lines, &remote_lines, prefix);
+    let (base_start_line, base_end_line) = span_line_range(&base_lines, prefix, suffix);
+    let (local_start_line, local_end_line) = span_line_range(&local_lines, prefix, suffix);
+    let (remote_start_line, remote_end_line) = span_line_range(&remote_lines, prefix, suffix);
     ConflictSpan {
         path: path.to_string(),
-        base_start_line: start,
-        base_end_line: end.min(base_lines.len().max(1) as u32),
-        local_start_line: start,
-        local_end_line: end.min(local_lines.len().max(1) as u32),
-        remote_start_line: start,
-        remote_end_line: end.min(remote_lines.len().max(1) as u32),
-        base_context_hash: Some(span_context_hash(base, first, last)),
-        local_context_hash: Some(span_context_hash(local, first, last)),
-        remote_context_hash: Some(span_context_hash(remote, first, last)),
+        base_start_line,
+        base_end_line,
+        local_start_line,
+        local_end_line,
+        remote_start_line,
+        remote_end_line,
+        base_context_hash: Some(span_context_hash(base, prefix, base_lines.len() - suffix)),
+        local_context_hash: Some(span_context_hash(local, prefix, local_lines.len() - suffix)),
+        remote_context_hash: Some(span_context_hash(
+            remote,
+            prefix,
+            remote_lines.len() - suffix,
+        )),
     }
 }
 
@@ -405,10 +433,37 @@ fn line_vec(bytes: &[u8]) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-fn span_context_hash(bytes: &[u8], first: usize, last: usize) -> String {
+fn common_prefix_len(base: &[&str], local: &[&str], remote: &[&str]) -> usize {
+    let min_len = base.len().min(local.len()).min(remote.len());
+    (0..min_len)
+        .take_while(|index| base[*index] == local[*index] && base[*index] == remote[*index])
+        .count()
+}
+
+fn common_suffix_len(base: &[&str], local: &[&str], remote: &[&str], prefix: usize) -> usize {
+    let max_suffix = base
+        .len()
+        .saturating_sub(prefix)
+        .min(local.len().saturating_sub(prefix))
+        .min(remote.len().saturating_sub(prefix));
+    (0..max_suffix)
+        .take_while(|offset| {
+            base[base.len() - 1 - offset] == local[local.len() - 1 - offset]
+                && base[base.len() - 1 - offset] == remote[remote.len() - 1 - offset]
+        })
+        .count()
+}
+
+fn span_line_range(lines: &[&str], prefix: usize, suffix: usize) -> (u32, u32) {
+    let start = (prefix + 1).min(lines.len().max(1)) as u32;
+    let end = lines.len().saturating_sub(suffix).max(start as usize) as u32;
+    (start, end)
+}
+
+fn span_context_hash(bytes: &[u8], start_index: usize, end_exclusive: usize) -> String {
     let lines = line_vec(bytes);
-    let start = first.saturating_sub(3);
-    let end = (last + 4).min(lines.len());
+    let start = start_index.saturating_sub(3).min(lines.len());
+    let end = (end_exclusive + 3).min(lines.len());
     super::short_hash(lines[start..end].iter().map(|line| line.as_bytes()))
 }
 
@@ -523,6 +578,22 @@ mod tests {
     }
 
     #[test]
+    fn yaml_merge_output_validation_rejects_invalid_yaml_bytes() {
+        assert!(structured_merge_output_is_valid(
+            "settings.yaml",
+            b"agent:\n  enabled: true\n",
+        ));
+        assert!(!structured_merge_output_is_valid(
+            "settings.yaml",
+            b"agent: [unterminated\n",
+        ));
+        assert!(!structured_merge_output_is_valid(
+            "settings.yaml",
+            b"\xff\xfe",
+        ));
+    }
+
+    #[test]
     fn env_different_key_edits_merge_without_secret_conflict() {
         let base = snapshot("base", ".env.local", b"API_KEY=old\nDATABASE_URL=old\n");
         let local = candidate(
@@ -592,6 +663,75 @@ mod tests {
             merged.snapshot.file_bytes_for_path(".env.local"),
             Some(&b"API_KEY=local\n# new comment\n"[..])
         );
+    }
+
+    #[test]
+    fn env_delete_single_key_and_edit_different_key_merges() {
+        let base = snapshot("base", ".env.local", b"API_KEY=old\nDATABASE_URL=old\n");
+        let local = candidate(&base, "local", ".env.local", b"DATABASE_URL=old\n");
+        let remote = snapshot(
+            "remote",
+            ".env.local",
+            b"API_KEY=old\nDATABASE_URL=remote\n",
+        );
+
+        let merged = merge_snapshots(
+            &base,
+            &local,
+            &remote,
+            CandidateBase {
+                workspace_id: WorkspaceId::new("ws_code"),
+                version: 3,
+                snapshot_id: SnapshotId::new("remote"),
+            },
+            KEY,
+            "2026-06-27T12:00:00Z",
+        )
+        .expect("merge succeeds");
+
+        let MergeOutcome::Clean(merged) = merged else {
+            panic!("single env key deletion plus different key edit should merge");
+        };
+        assert_eq!(
+            merged.snapshot.file_bytes_for_path(".env.local"),
+            Some(&b"DATABASE_URL=remote\n"[..])
+        );
+    }
+
+    #[test]
+    fn env_duplicate_key_deletion_stays_secret_bearing_conflict() {
+        let base = snapshot(
+            "base",
+            ".env.local",
+            b"API_KEY=old\nAPI_KEY=older\nDATABASE_URL=old\n",
+        );
+        let local = candidate(
+            &base,
+            "local",
+            ".env.local",
+            b"API_KEY=old\nAPI_KEY=older\nDATABASE_URL=local\n",
+        );
+        let remote = snapshot("remote", ".env.local", b"API_KEY=older\nDATABASE_URL=old\n");
+
+        let merged = merge_snapshots(
+            &base,
+            &local,
+            &remote,
+            CandidateBase {
+                workspace_id: WorkspaceId::new("ws_code"),
+                version: 3,
+                snapshot_id: SnapshotId::new("remote"),
+            },
+            KEY,
+            "2026-06-27T12:00:00Z",
+        )
+        .expect("merge succeeds");
+
+        let MergeOutcome::Conflicted(conflicts) = merged else {
+            panic!("duplicate env key deletion should stay ambiguous");
+        };
+        assert_eq!(conflicts[0].conflict_kind, ConflictKind::EnvKey);
+        assert!(conflicts[0].contains_secrets);
     }
 
     #[test]
@@ -671,6 +811,23 @@ mod tests {
             panic!("binary divergence should conflict");
         };
         assert_eq!(conflicts[0].conflict_kind, ConflictKind::Binary);
+    }
+
+    #[test]
+    fn conflict_span_excludes_shifted_identical_trailing_lines() {
+        let span = conflict_span(
+            "test.txt",
+            b"line one\nline two\nline three\n",
+            b"line one\nlocal insert a\nlocal insert b\nline two\nline three\n",
+            b"line one\nremote change\nline three\n",
+        );
+
+        assert_eq!(span.base_start_line, 2);
+        assert_eq!(span.base_end_line, 2);
+        assert_eq!(span.local_start_line, 2);
+        assert_eq!(span.local_end_line, 4);
+        assert_eq!(span.remote_start_line, 2);
+        assert_eq!(span.remote_end_line, 2);
     }
 
     fn candidate(

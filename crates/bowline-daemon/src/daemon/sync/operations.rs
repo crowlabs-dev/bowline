@@ -29,34 +29,48 @@ pub(in crate::daemon) fn requeue_startup_sync_claims_with_resolved_attention(
     let workspace_id = options.args.workspace_id();
     let device_id = DeviceId::new(options.args.device_id.clone());
     let now = current_timestamp();
-    let _ = store.requeue_claimed_sync_operations_for_device_kind(
+    if let Err(error) = store.requeue_claimed_sync_operations_for_device_kind(
         &workspace_id,
         "daemon-reconcile",
         &device_id,
         &now,
-    );
-    let _ = store.requeue_waiting_retry_sync_operations_for_device_kind(
+    ) {
+        eprintln!("bowline-daemon store write failed (requeue_claimed_sync_operations): {error}");
+    }
+    if let Err(error) = store.requeue_waiting_retry_sync_operations_for_device_kind(
         &workspace_id,
         "daemon-reconcile",
         &device_id,
         &now,
-    );
-    if hosted_config_available {
-        let _ = store.requeue_attention_sync_operations_for_device_kind_with_error(
+    ) {
+        eprintln!(
+            "bowline-daemon store write failed (requeue_waiting_retry_sync_operations): {error}"
+        );
+    }
+    if hosted_config_available
+        && let Err(error) = store.requeue_attention_sync_operations_for_device_kind_with_error(
             &workspace_id,
             "daemon-reconcile",
             &device_id,
             "CONVEX_URL is required for daemon sync",
             &now,
+        )
+    {
+        eprintln!(
+            "bowline-daemon store write failed (requeue_attention_sync_operations_hosted_config): {error}"
         );
     }
-    if workspace_key_available {
-        let _ = store.requeue_attention_sync_operations_for_device_kind_with_error(
+    if workspace_key_available
+        && let Err(error) = store.requeue_attention_sync_operations_for_device_kind_with_error(
             &workspace_id,
             "daemon-reconcile",
             &device_id,
             "workspace key is missing",
             &now,
+        )
+    {
+        eprintln!(
+            "bowline-daemon store write failed (requeue_attention_sync_operations_workspace_key): {error}"
         );
     }
 }
@@ -167,6 +181,131 @@ impl SyncOnceSummary {
 impl SyncOnceArgs {
     pub(in crate::daemon) fn workspace_id(&self) -> WorkspaceId {
         WorkspaceId::new(self.workspace_id.clone())
+    }
+}
+
+impl ContinuousSyncRuntime {
+    pub(in crate::daemon) fn append_sync_completed_event(
+        &self,
+        store: &MetadataStore,
+        operation_id: &str,
+        summary: &SyncOnceSummary,
+        now: &str,
+    ) {
+        let workspace_id = self.options.args.workspace_id();
+        let mut event = sync_event(
+            EventName::SyncCompleted,
+            EventSeverity::Info,
+            format!(
+                "Continuous sync completed with outcome `{}`.",
+                summary.sync_state()
+            ),
+            &workspace_id,
+            &self.options.args.device_id,
+            operation_id,
+            now,
+        );
+        event.payload.insert(
+            "outcome".to_string(),
+            serde_json::Value::String(summary.sync_state().to_string()),
+        );
+        event.payload.insert(
+            "snapshotId".to_string(),
+            serde_json::Value::String(summary.snapshot_id.clone()),
+        );
+        event.payload.insert(
+            "version".to_string(),
+            serde_json::Value::from(summary.version),
+        );
+        event.payload.insert(
+            "conflictCount".to_string(),
+            serde_json::Value::from(summary.conflict_count),
+        );
+        self.store_health
+            .record("append_event(sync_completed)", store.append_event(event));
+        for conflict in &summary.conflicts {
+            self.append_conflict_created_event(store, operation_id, conflict, now);
+        }
+    }
+
+    pub(in crate::daemon) fn append_conflict_created_event(
+        &self,
+        store: &MetadataStore,
+        operation_id: &str,
+        conflict: &ConflictSummary,
+        now: &str,
+    ) {
+        let workspace_id = self.options.args.workspace_id();
+        let event_operation_id = format!("{operation_id}:{}", conflict.id);
+        let mut event = WorkspaceEvent::new(
+            sync_event_id(EventName::ConflictCreated, &event_operation_id, now),
+            EventName::ConflictCreated,
+            now,
+            EventSeverity::Attention,
+            format!(
+                "Continuous sync detected a conflict in {} path(s).",
+                conflict.paths.len()
+            ),
+            workspace_id,
+        );
+        event.device_id = Some(DeviceId::new(self.options.args.device_id.clone()));
+        event.path = conflict.paths.first().cloned();
+        event.subject = Some(EventSubject {
+            kind: EventSubjectKind::Conflict,
+            id: conflict.id.clone(),
+            path: event.path.clone(),
+        });
+        event.payload.insert(
+            "operationId".to_string(),
+            serde_json::Value::String(operation_id.to_string()),
+        );
+        event.payload.insert(
+            "conflictId".to_string(),
+            serde_json::Value::String(conflict.id.clone()),
+        );
+        event.payload.insert(
+            "pathCount".to_string(),
+            serde_json::Value::from(conflict.paths.len()),
+        );
+        self.store_health
+            .record("append_event(conflict_created)", store.append_event(event));
+    }
+
+    pub(in crate::daemon) fn append_sync_failure_event(
+        &self,
+        store: &MetadataStore,
+        operation_id: &str,
+        action: SyncFailureAction,
+        now: &str,
+    ) {
+        let (name, severity, outcome) = match action {
+            SyncFailureAction::Attention => (
+                EventName::SyncDegraded,
+                EventSeverity::Attention,
+                "attention",
+            ),
+            SyncFailureAction::Offline => {
+                (EventName::SyncLimited, EventSeverity::Limited, "offline")
+            }
+            SyncFailureAction::Retry => (EventName::SyncLimited, EventSeverity::Limited, "retry"),
+        };
+        let workspace_id = self.options.args.workspace_id();
+        let mut event = sync_event(
+            name,
+            severity,
+            format!("Continuous sync is waiting for {outcome}."),
+            &workspace_id,
+            &self.options.args.device_id,
+            operation_id,
+            now,
+        );
+        event.payload.insert(
+            "outcome".to_string(),
+            serde_json::Value::String(outcome.to_string()),
+        );
+        event.redaction = EventRedaction::applied(["error-message-not-included"]);
+        self.store_health
+            .record("append_event(sync_failure)", store.append_event(event));
     }
 }
 

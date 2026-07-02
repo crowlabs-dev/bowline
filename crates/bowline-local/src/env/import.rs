@@ -276,3 +276,55 @@ impl From<serde_json::Error> for EnvImportError {
         Self::Json(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bowline_core::ids::{ProjectId, WorkspaceId};
+    use serde_json::Value;
+
+    use super::*;
+
+    #[test]
+    fn profiles_are_derived_from_env_file_names() {
+        assert_eq!(profile_for_env_path(".env"), "default");
+        assert_eq!(profile_for_env_path(".env.local"), "local");
+        assert_eq!(profile_for_env_path(".env.development"), "development");
+        assert_eq!(profile_for_env_path(".env.production"), "production");
+        assert_eq!(profile_for_env_path("sub/dir/.env"), "default");
+    }
+
+    #[test]
+    fn env_record_ids_are_stable_and_include_profile_key_and_occurrence() {
+        let workspace = WorkspaceId::new("ws_test");
+        let first = env_record_id(&workspace, ".env", "KEY", 0);
+
+        assert_eq!(first, env_record_id(&workspace, ".env", "KEY", 0));
+        assert_ne!(first, env_record_id(&workspace, ".env.local", "KEY", 0));
+        assert_ne!(first, env_record_id(&workspace, ".env", "OTHER", 0));
+        assert_ne!(first, env_record_id(&workspace, ".env", "KEY", 1));
+    }
+
+    #[test]
+    fn records_for_parsed_env_keeps_key_and_opaque_metadata() {
+        let workspace = WorkspaceId::new("ws_env");
+        let parsed = parse_env_text(".env.local", "local", b"KEY=placeholder\nnot a kv\n");
+        let records = records_for_parsed_env(
+            &workspace,
+            Some(ProjectId::new("project_app")),
+            &parsed,
+            "2026-07-01T00:00:00Z",
+        )
+        .expect("records");
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].key_name, "KEY");
+        assert_eq!(records[0].profile, "local");
+        assert_eq!(records[0].line_kind, "key-value");
+        assert_eq!(records[0].occurrence_index, 0);
+        assert_eq!(records[1].key_name, "__opaque_line_1");
+        assert_eq!(records[1].line_kind, "opaque");
+        let locator: Value = serde_json::from_str(&records[0].encrypted_locator_json).unwrap();
+        assert_eq!(locator["storage"], "source-pack-file");
+        assert_eq!(locator["redacted"], true);
+    }
+}

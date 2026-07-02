@@ -211,7 +211,13 @@ pub(super) fn run_with_idempotency(mut cli: Cli) -> ExitCode {
     }) {
         Ok(output) => output,
         Err(error) => {
-            let _ = store.delete_command_idempotency_record(&workspace_id, &key, &request_hash);
+            if let Err(cleanup_error) =
+                store.delete_command_idempotency_record(&workspace_id, &key, &request_hash)
+            {
+                eprintln!(
+                    "bowline: failed to release idempotency reservation (key will replay as in-progress until it expires): {cleanup_error}"
+                );
+            }
             print_runtime_error(command_name, generated_at(), &error.to_string(), true);
             return ExitCode::from(EXIT_RUNTIME);
         }
@@ -239,7 +245,13 @@ pub(super) fn run_with_idempotency(mut cli: Cli) -> ExitCode {
             }
         }
     } else {
-        let _ = store.delete_command_idempotency_record(&workspace_id, &key, &request_hash);
+        if let Err(cleanup_error) =
+            store.delete_command_idempotency_record(&workspace_id, &key, &request_hash)
+        {
+            eprintln!(
+                "bowline: failed to release idempotency reservation (key will replay as in-progress until it expires): {cleanup_error}"
+            );
+        }
     }
 
     let _ = io::stdout().write_all(&output.stdout);

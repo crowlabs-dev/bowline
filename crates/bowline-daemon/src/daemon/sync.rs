@@ -1,3 +1,4 @@
+use super::store_health::StoreHealth;
 use super::*;
 
 mod executor;
@@ -43,6 +44,7 @@ pub(super) struct ContinuousSyncRuntime {
     pub(super) latest_observed_ref: Option<WorkspaceRef>,
     pub(super) status_publisher: StatusPublisher,
     pub(super) next_status_publish: Instant,
+    pub(super) store_health: StoreHealth,
 }
 
 pub(super) type SyncExecutor = Box<
@@ -170,6 +172,7 @@ impl ContinuousSyncRuntime {
             latest_observed_ref: None,
             status_publisher: hosted_status_publisher(),
             next_status_publish: Instant::now(),
+            store_health: StoreHealth::new(),
         }
     }
 
@@ -412,13 +415,43 @@ impl ContinuousSyncRuntime {
     }
 
     pub(super) fn record_component_states(&self, sync: &str, watcher: &str, network: &str) {
-        let Ok(store) = self.metadata_store() else {
+        let Some(store) = self.metadata_store_for_write("metadata_store(record_component_states)")
+        else {
             return;
         };
         let now = current_timestamp();
-        let _ = store.set_component_state("sync", sync, &now);
-        let _ = store.set_component_state("watcher", watcher, &now);
-        let _ = store.set_component_state("network", network, &now);
+        let sync = self.sync_component_state(sync);
+        if self
+            .store_health
+            .record(
+                "set_component_state(sync)",
+                store.set_component_state("sync", sync, &now),
+            )
+            .is_some()
+            && sync == "degraded"
+        {
+            self.store_health.mark_degraded_status_written();
+        }
+        self.store_health.record(
+            "set_component_state(watcher)",
+            store.set_component_state("watcher", watcher, &now),
+        );
+        self.store_health.record(
+            "set_component_state(network)",
+            store.set_component_state("network", network, &now),
+        );
+    }
+
+    pub(super) fn metadata_store_for_write(&self, context: &'static str) -> Option<MetadataStore> {
+        self.store_health.record(context, self.metadata_store())
+    }
+
+    pub(super) fn sync_component_state<'a>(&self, sync: &'a str) -> &'a str {
+        if self.store_health.is_degraded() {
+            "degraded"
+        } else {
+            sync
+        }
     }
 
     /// Publish a redacted status snapshot. Any of the component states may be
@@ -433,12 +466,14 @@ impl ContinuousSyncRuntime {
     ) {
         let request = StatusPublishRequest {
             args: self.options.args.clone(),
-            sync_state: sync_state.map(str::to_string),
+            sync_state: sync_state.map(|state| self.sync_component_state(state).to_string()),
             watcher_state: watcher_state.map(str::to_string),
             network_state: network_state.map(str::to_string),
         };
         if let Err(error) = (self.status_publisher)(request) {
             eprintln!("bowline-daemon status publish skipped: {error}");
+        } else {
+            self.store_health.recover_after_status_publish();
         }
         self.next_status_publish = Instant::now() + STATUS_PUBLISH_INTERVAL;
     }
@@ -489,11 +524,14 @@ impl ContinuousSyncRuntime {
             json_string(local_head.workspace_ref.snapshot_id.as_str()),
             local_head.workspace_ref.version,
         );
-        let _ = store.complete_obsolete_daemon_reconciles_for_device(
-            &workspace_id,
-            &DeviceId::new(self.options.args.device_id.clone()),
-            &payload,
-            &now,
+        self.store_health.record(
+            "complete_obsolete_daemon_reconciles_for_device",
+            store.complete_obsolete_daemon_reconciles_for_device(
+                &workspace_id,
+                &DeviceId::new(self.options.args.device_id.clone()),
+                &payload,
+                &now,
+            ),
         );
     }
 
@@ -534,7 +572,7 @@ impl ContinuousSyncRuntime {
     }
 
     pub(super) fn claim_daemon_sync_operation(&self) -> Option<String> {
-        let store = self.metadata_store().ok()?;
+        let store = self.metadata_store_for_write("metadata_store(claim_daemon_sync_operation)")?;
         let now = current_timestamp();
         let workspace_id = self.options.args.workspace_id();
         let device_id = DeviceId::new(self.options.args.device_id.clone());
@@ -582,12 +620,16 @@ impl ContinuousSyncRuntime {
                 created_at: now.clone(),
                 updated_at: now.clone(),
             };
-            let _ = store.enqueue_sync_operation(&record);
+            self.store_health.record(
+                "enqueue_sync_operation",
+                store.enqueue_sync_operation(&record),
+            );
         }
-        store
-            .claim_next_sync_operation(&workspace_id, &self.options.args.device_id, &now)
-            .ok()
-            .flatten()
+        self.store_health
+            .record(
+                "claim_next_sync_operation",
+                store.claim_next_sync_operation(&workspace_id, &self.options.args.device_id, &now),
+            )?
             .map(|operation| operation.id)
     }
 
@@ -613,17 +655,22 @@ impl ContinuousSyncRuntime {
     }
 
     pub(super) fn requeue_expired_sync_claims(&self) {
-        let Ok(store) = self.metadata_store() else {
+        let Some(store) =
+            self.metadata_store_for_write("metadata_store(requeue_expired_sync_claims)")
+        else {
             return;
         };
         let now = OffsetDateTime::now_utc();
         let expired_before =
             format_timestamp(now - time::Duration::seconds(SYNC_CLAIM_TIMEOUT_SECONDS));
         let updated_at = format_timestamp(now);
-        let _ = store.requeue_expired_sync_claims(
-            &self.options.args.workspace_id(),
-            &expired_before,
-            &updated_at,
+        self.store_health.record(
+            "requeue_expired_sync_claims",
+            store.requeue_expired_sync_claims(
+                &self.options.args.workspace_id(),
+                &expired_before,
+                &updated_at,
+            ),
         );
     }
 
@@ -632,7 +679,9 @@ impl ContinuousSyncRuntime {
         operation_id: &str,
         summary: &SyncOnceSummary,
     ) {
-        let Ok(store) = self.metadata_store() else {
+        let Some(store) =
+            self.metadata_store_for_write("metadata_store(complete_daemon_sync_operation)")
+        else {
             return;
         };
         let now = current_timestamp();
@@ -644,21 +693,28 @@ impl ContinuousSyncRuntime {
             summary.version,
             summary.conflict_count,
         );
-        let _ = store.complete_sync_operation(operation_id, &payload, &now);
+        self.store_health.record(
+            "complete_sync_operation",
+            store.complete_sync_operation(operation_id, &payload, &now),
+        );
         self.append_sync_completed_event(&store, operation_id, summary, &now);
     }
 
     pub(super) fn record_remote_ref_cursor(&self, summary: &SyncOnceSummary) {
-        let Ok(store) = self.metadata_store() else {
+        let Some(store) = self.metadata_store_for_write("metadata_store(record_remote_ref_cursor)")
+        else {
             return;
         };
-        let _ = store.put_remote_ref_cursor(&RemoteRefCursorRecord {
-            workspace_id: WorkspaceId::new(summary.workspace_id.clone()),
-            cursor: None,
-            last_observed_version: Some(summary.version),
-            last_observed_snapshot_id: Some(summary.snapshot_id.clone()),
-            updated_at: current_timestamp(),
-        });
+        self.store_health.record(
+            "put_remote_ref_cursor(sync_summary)",
+            store.put_remote_ref_cursor(&RemoteRefCursorRecord {
+                workspace_id: WorkspaceId::new(summary.workspace_id.clone()),
+                cursor: None,
+                last_observed_version: Some(summary.version),
+                last_observed_snapshot_id: Some(summary.snapshot_id.clone()),
+                updated_at: current_timestamp(),
+            }),
+        );
     }
 
     pub(super) fn observe_remote_ref_cursor(&mut self) -> bool {
@@ -685,36 +741,52 @@ impl ContinuousSyncRuntime {
             return false;
         };
         self.latest_observed_ref = Some(remote_ref.clone());
-        let Ok(store) = self.metadata_store() else {
+        let Some(store) =
+            self.metadata_store_for_write("metadata_store(observe_remote_ref_cursor)")
+        else {
             return false;
         };
-        let _ = store.put_remote_ref_cursor(&RemoteRefCursorRecord {
-            workspace_id: workspace_id.clone(),
-            cursor: None,
-            last_observed_version: Some(remote_ref.version),
-            last_observed_snapshot_id: Some(remote_ref.snapshot_id),
-            updated_at: current_timestamp(),
-        });
+        self.store_health.record(
+            "put_remote_ref_cursor(observed_ref)",
+            store.put_remote_ref_cursor(&RemoteRefCursorRecord {
+                workspace_id: workspace_id.clone(),
+                cursor: None,
+                last_observed_version: Some(remote_ref.version),
+                last_observed_snapshot_id: Some(remote_ref.snapshot_id),
+                updated_at: current_timestamp(),
+            }),
+        );
         remote_cursor_ahead_of_local_head(&store, &workspace_id)
     }
 
     pub(super) fn fail_daemon_sync_operation(&self, operation_id: &str, message: &str) {
-        let Ok(store) = self.metadata_store() else {
+        let Some(store) =
+            self.metadata_store_for_write("metadata_store(fail_daemon_sync_operation)")
+        else {
             return;
         };
         let now = current_timestamp();
         let action = sync_failure_action(message);
         match action {
             SyncFailureAction::Attention => {
-                let _ = store.mark_sync_operation_attention(operation_id, message, &now);
+                self.store_health.record(
+                    "mark_sync_operation_attention",
+                    store.mark_sync_operation_attention(operation_id, message, &now),
+                );
             }
             SyncFailureAction::Offline => {
                 let retry_at = self.next_sync_attempt_at(&store, operation_id);
-                let _ = store.block_sync_operation_offline(operation_id, message, &retry_at, &now);
+                self.store_health.record(
+                    "block_sync_operation_offline",
+                    store.block_sync_operation_offline(operation_id, message, &retry_at, &now),
+                );
             }
             SyncFailureAction::Retry => {
                 let retry_at = self.next_sync_attempt_at(&store, operation_id);
-                let _ = store.fail_sync_operation_for_retry(operation_id, message, &retry_at, &now);
+                self.store_health.record(
+                    "fail_sync_operation_for_retry",
+                    store.fail_sync_operation_for_retry(operation_id, message, &retry_at, &now),
+                );
             }
         }
         self.append_sync_failure_event(&store, operation_id, action, &now);
@@ -731,125 +803,5 @@ impl ContinuousSyncRuntime {
             OffsetDateTime::now_utc()
                 + time::Duration::seconds(retry_delay_seconds(operation_id, attempt_count)),
         )
-    }
-
-    pub(super) fn append_sync_completed_event(
-        &self,
-        store: &MetadataStore,
-        operation_id: &str,
-        summary: &SyncOnceSummary,
-        now: &str,
-    ) {
-        let workspace_id = self.options.args.workspace_id();
-        let mut event = sync_event(
-            EventName::SyncCompleted,
-            EventSeverity::Info,
-            format!(
-                "Continuous sync completed with outcome `{}`.",
-                summary.sync_state()
-            ),
-            &workspace_id,
-            &self.options.args.device_id,
-            operation_id,
-            now,
-        );
-        event.payload.insert(
-            "outcome".to_string(),
-            serde_json::Value::String(summary.sync_state().to_string()),
-        );
-        event.payload.insert(
-            "snapshotId".to_string(),
-            serde_json::Value::String(summary.snapshot_id.clone()),
-        );
-        event.payload.insert(
-            "version".to_string(),
-            serde_json::Value::from(summary.version),
-        );
-        event.payload.insert(
-            "conflictCount".to_string(),
-            serde_json::Value::from(summary.conflict_count),
-        );
-        let _ = store.append_event(event);
-        for conflict in &summary.conflicts {
-            self.append_conflict_created_event(store, operation_id, conflict, now);
-        }
-    }
-
-    pub(super) fn append_conflict_created_event(
-        &self,
-        store: &MetadataStore,
-        operation_id: &str,
-        conflict: &ConflictSummary,
-        now: &str,
-    ) {
-        let workspace_id = self.options.args.workspace_id();
-        let event_operation_id = format!("{operation_id}:{}", conflict.id);
-        let mut event = WorkspaceEvent::new(
-            sync_event_id(EventName::ConflictCreated, &event_operation_id, now),
-            EventName::ConflictCreated,
-            now,
-            EventSeverity::Attention,
-            format!(
-                "Continuous sync detected a conflict in {} path(s).",
-                conflict.paths.len()
-            ),
-            workspace_id,
-        );
-        event.device_id = Some(DeviceId::new(self.options.args.device_id.clone()));
-        event.path = conflict.paths.first().cloned();
-        event.subject = Some(EventSubject {
-            kind: EventSubjectKind::Conflict,
-            id: conflict.id.clone(),
-            path: event.path.clone(),
-        });
-        event.payload.insert(
-            "operationId".to_string(),
-            serde_json::Value::String(operation_id.to_string()),
-        );
-        event.payload.insert(
-            "conflictId".to_string(),
-            serde_json::Value::String(conflict.id.clone()),
-        );
-        event.payload.insert(
-            "pathCount".to_string(),
-            serde_json::Value::from(conflict.paths.len()),
-        );
-        let _ = store.append_event(event);
-    }
-
-    pub(super) fn append_sync_failure_event(
-        &self,
-        store: &MetadataStore,
-        operation_id: &str,
-        action: SyncFailureAction,
-        now: &str,
-    ) {
-        let (name, severity, outcome) = match action {
-            SyncFailureAction::Attention => (
-                EventName::SyncDegraded,
-                EventSeverity::Attention,
-                "attention",
-            ),
-            SyncFailureAction::Offline => {
-                (EventName::SyncLimited, EventSeverity::Limited, "offline")
-            }
-            SyncFailureAction::Retry => (EventName::SyncLimited, EventSeverity::Limited, "retry"),
-        };
-        let workspace_id = self.options.args.workspace_id();
-        let mut event = sync_event(
-            name,
-            severity,
-            format!("Continuous sync is waiting for {outcome}."),
-            &workspace_id,
-            &self.options.args.device_id,
-            operation_id,
-            now,
-        );
-        event.payload.insert(
-            "outcome".to_string(),
-            serde_json::Value::String(outcome.to_string()),
-        );
-        event.redaction = EventRedaction::applied(["error-message-not-included"]);
-        let _ = store.append_event(event);
     }
 }

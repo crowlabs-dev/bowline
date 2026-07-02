@@ -248,6 +248,7 @@ fn systemd_quote_value(value: &str) -> String {
             '"' => quoted.push_str("\\\""),
             '\\' => quoted.push_str("\\\\"),
             '%' => quoted.push_str("%%"),
+            '$' => quoted.push_str("$$"),
             character if character.is_control() => {
                 for byte in character.to_string().as_bytes() {
                     quoted.push_str(&format!("\\x{byte:02x}"));
@@ -413,10 +414,12 @@ mod tests {
     fn rendered_unit_escapes_systemd_specifiers() {
         let mut config = config_with_spaces();
         config.root = PathBuf::from("/tmp/Code%Root");
+        config.device_id = "device-$USER".to_string();
 
         let unit = render_systemd_user_unit(&config);
 
         assert!(unit.contains("--sync-root \"/tmp/Code%%Root\""));
+        assert!(unit.contains("--sync-device \"device-$$USER\""));
     }
 
     #[test]

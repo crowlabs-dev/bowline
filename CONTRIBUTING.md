@@ -8,6 +8,18 @@ The private repo remains canonical. Public source changes should start in the
 private repo and flow through the generated public export; do not edit generated
 public source as a second source of truth.
 
+## Getting started
+
+Use Rust stable, Node 24, and pnpm 10.30.0. Clone the source, then run:
+
+```bash
+pnpm install
+pnpm verify:public
+```
+
+`pnpm verify:public` is the public-repo gate. It checks the exported local
+client, daemon, contracts, docs, formatting, and public-source boundaries.
+
 ## Pull Requests
 
 We are not accepting unsolicited feature PRs yet. Small correctness fixes,

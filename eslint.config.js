@@ -25,7 +25,9 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ["packages/control-plane/convex-tests/*.ts"],
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },

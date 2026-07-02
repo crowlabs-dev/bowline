@@ -235,3 +235,138 @@ impl From<bowline_storage::ManifestError> for DownloadError {
         Self::Manifest(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bowline_core::{
+        ids::{ContentId, PackId},
+        policy::{MaterializationMode, PathClassification},
+        workspace_graph::{HydrationState, NamespaceEntry, SnapshotKind},
+    };
+
+    use super::*;
+
+    fn workspace() -> WorkspaceId {
+        WorkspaceId::new("ws_download")
+    }
+
+    fn snapshot() -> SnapshotId {
+        SnapshotId::new("snap_download")
+    }
+
+    fn manifest(entries: Vec<NamespaceEntry>) -> SnapshotManifest {
+        SnapshotManifest {
+            schema_version: 1,
+            snapshot_id: snapshot(),
+            workspace_id: workspace(),
+            project_id: None,
+            kind: SnapshotKind::WorkspaceHead,
+            base_snapshot_id: None,
+            entries,
+            refs: Vec::new(),
+        }
+    }
+
+    fn file(path: &str) -> NamespaceEntry {
+        let content_id = ContentId::new(format!("cid_{}", path.replace('/', "_")));
+        NamespaceEntry {
+            path: path.to_string(),
+            kind: NamespaceEntryKind::File,
+            classification: PathClassification::WorkspaceSync,
+            mode: MaterializationMode::WorkspaceSync,
+            access: Vec::new(),
+            content_id: Some(content_id.clone()),
+            locator: Some(ContentLocator {
+                content_id,
+                storage: ContentStorage::Packed,
+                raw_size: 11,
+                pack_id: Some(PackId::new("pack_download")),
+                offset: Some(0),
+                length: Some(11),
+                chunk_ids: Vec::new(),
+            }),
+            symlink_target: None,
+            byte_len: Some(11),
+            hydration_state: HydrationState::Cold,
+        }
+    }
+
+    fn symlink(path: &str, target: &str) -> NamespaceEntry {
+        NamespaceEntry {
+            path: path.to_string(),
+            kind: NamespaceEntryKind::Symlink,
+            classification: PathClassification::WorkspaceSync,
+            mode: MaterializationMode::WorkspaceSync,
+            access: Vec::new(),
+            content_id: None,
+            locator: None,
+            symlink_target: Some(target.to_string()),
+            byte_len: None,
+            hydration_state: HydrationState::Local,
+        }
+    }
+
+    #[test]
+    fn private_state_and_symlink_targets_are_rejected_precisely() {
+        assert!(is_private_state_path(".bowline/index"));
+        assert!(!is_private_state_path(".git/index"));
+        assert!(validate_imported_symlink_target("docs/readme.md").is_ok());
+
+        for target in ["/abs", "../escape", "sub/../escape", "."] {
+            assert!(matches!(
+                validate_imported_symlink_target(target),
+                Err(DownloadError::UnsafeManifest("unsafe symlink target"))
+            ));
+        }
+    }
+
+    #[test]
+    fn case_folded_prefixes_detect_collisions() {
+        let mut paths = BTreeMap::new();
+        validate_case_folded_prefixes("src/App.ts", &mut paths).unwrap();
+
+        assert!(matches!(
+            validate_case_folded_prefixes("src/app.ts", &mut paths),
+            Err(DownloadError::UnsafeManifest("case-only path collision"))
+        ));
+    }
+
+    #[test]
+    fn validates_happy_manifest_and_rejects_unsafe_paths() {
+        assert!(
+            validate_imported_manifest(
+                &workspace(),
+                &snapshot(),
+                &manifest(vec![file("src/main.rs")])
+            )
+            .is_ok()
+        );
+
+        let error = validate_imported_manifest(
+            &workspace(),
+            &snapshot(),
+            &manifest(vec![file(".bowline/state")]),
+        )
+        .expect_err("private state path must be unsafe");
+        assert!(matches!(error, DownloadError::UnsafePath(path) if path == ".bowline/state"));
+    }
+
+    #[test]
+    fn validates_file_locator_and_symlink_invariants() {
+        let mut missing_locator = file("src/lib.rs");
+        missing_locator.locator = None;
+        assert!(matches!(
+            validate_imported_manifest(&workspace(), &snapshot(), &manifest(vec![missing_locator])),
+            Err(DownloadError::UnsafeManifest("file entry missing locator"))
+        ));
+
+        assert!(matches!(
+            validate_imported_manifest(
+                &workspace(),
+                &snapshot(),
+                &manifest(vec![symlink("link", "../escape")])
+            ),
+            Err(DownloadError::UnsafeManifest("unsafe symlink target"))
+        ));
+    }
+}

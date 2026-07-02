@@ -237,3 +237,52 @@ fn set_owner_only(path: &Path) -> io::Result<()> {
 fn set_owner_only(_path: &Path) -> io::Result<()> {
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::env::parser::parse_env_text;
+
+    #[test]
+    fn materialize_round_trips_without_updates() {
+        let bytes = b"KEY=value\r\n# comment\nexport OTHER='two words'\n";
+        let parsed = parse_env_text(".env", "default", bytes);
+
+        assert_eq!(materialize_env_text(&parsed, &[]), bytes);
+    }
+
+    #[test]
+    fn materialize_updates_values_and_preserves_other_line_shapes() {
+        let parsed = parse_env_text(".env", "default", b"KEY='old'\r\nOTHER=kept # tail\n");
+        let output = materialize_env_text(
+            &parsed,
+            &[EnvValueUpdate {
+                source_path: ".env".to_string(),
+                key: "KEY".to_string(),
+                occurrence_index: 0,
+                value: SecretBytes::from("new value"),
+            }],
+        );
+
+        assert_eq!(output, b"KEY='new value'\r\nOTHER=kept # tail\n");
+    }
+
+    #[test]
+    fn validates_normal_relative_paths() {
+        assert!(validate_normal_relative_path(Path::new(".env")).is_ok());
+        assert!(validate_normal_relative_path(Path::new("sub/dir/.env.local")).is_ok());
+
+        for path in [
+            Path::new(""),
+            Path::new("/abs/.env"),
+            Path::new("../.env"),
+            Path::new("sub/../.env"),
+        ] {
+            let error = validate_normal_relative_path(path).expect_err("path must be rejected");
+            match error {
+                EnvMaterializeError::Io(io) => assert_eq!(io.kind(), io::ErrorKind::InvalidInput),
+                other => panic!("expected invalid-input path error, got {other:?}"),
+            }
+        }
+    }
+}

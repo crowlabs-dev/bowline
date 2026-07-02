@@ -68,7 +68,9 @@ pub(super) fn append_hydration_event(
             serde_json::Value::String(reason.to_string()),
         );
     }
-    let _ = store.append_event(event);
+    if let Err(error) = store.append_event(event) {
+        eprintln!("bowline-sync event append failed: {error}");
+    }
 }
 
 pub(super) fn materialization_counts(entries: &[NamespaceEntry]) -> (usize, u64) {

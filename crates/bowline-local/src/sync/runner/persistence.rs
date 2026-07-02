@@ -192,19 +192,19 @@ impl<'a> SyncRunner<'a> {
             &report.summary,
             &self.options.generated_at,
         )?;
-        if let Err(error) = import_env_records_from_scan(
+        if let Err(import_error) = import_env_records_from_scan(
             &mut store,
             &self.options.workspace_id,
             &self.options.root,
             &report,
             self.options.workspace_content_key,
             &self.options.generated_at,
+        ) && let Err(checkpoint_error) = self.record_sync_checkpoint(
+            "scan-env-metadata-import-skipped",
+            "blocked",
+            &format!("{{\"reason\":{}}}", json_string(&import_error.to_string())),
         ) {
-            let _ = self.record_sync_checkpoint(
-                "scan-env-metadata-import-skipped",
-                "blocked",
-                &format!("{{\"reason\":{}}}", json_string(&error.to_string())),
-            );
+            eprintln!("bowline-sync checkpoint write failed: {checkpoint_error}");
         }
         let retained_paths = candidate
             .snapshot

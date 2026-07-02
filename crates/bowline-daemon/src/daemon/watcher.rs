@@ -35,10 +35,14 @@ pub(super) fn send_watcher_signal(
 ) {
     match event {
         Ok(event) => {
-            let _ = change_tx.send(WatcherSignal::Changed(event));
+            if let Err(error) = change_tx.send(WatcherSignal::Changed(event)) {
+                eprintln!("bowline-daemon watcher signal dropped: {error}");
+            }
         }
         Err(error) => {
-            let _ = change_tx.send(WatcherSignal::Limited(error.to_string()));
+            if let Err(error) = change_tx.send(WatcherSignal::Limited(error.to_string())) {
+                eprintln!("bowline-daemon watcher signal dropped: {error}");
+            }
         }
     }
 }

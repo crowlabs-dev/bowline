@@ -291,3 +291,59 @@ fn is_key_start(byte: u8) -> bool {
 fn is_key_continue(byte: u8) -> bool {
     is_key_start(byte) || byte.is_ascii_digit()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(line: &EnvLine) -> &EnvKeyValue {
+        match &line.kind {
+            EnvLineKind::KeyValue(value) => value,
+            other => panic!("expected key-value line, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_empty_plain_export_quotes_comments_and_crlf() {
+        let parsed = parse_env_text(
+            ".env",
+            "default",
+            b"\nKEY=value\r\nexport QUOTED='two words # kept'\nDOUBLE=\"hash # kept\" # tail\nTRAIL=abc   # comment\n",
+        );
+
+        assert_eq!(parsed.lines.len(), 5);
+        assert!(matches!(parsed.lines[0].kind, EnvLineKind::Blank));
+        assert_eq!(parsed.lines[1].ending, "\r\n");
+        assert_eq!(key(&parsed.lines[1]).value.as_bytes(), b"value");
+        assert!(key(&parsed.lines[2]).export_prefix);
+        assert_eq!(key(&parsed.lines[2]).quote_style, QuoteStyle::Single);
+        assert_eq!(key(&parsed.lines[2]).value.as_bytes(), b"two words # kept");
+        assert_eq!(key(&parsed.lines[3]).quote_style, QuoteStyle::Double);
+        assert_eq!(key(&parsed.lines[4]).value.as_bytes(), b"abc");
+        assert_eq!(key(&parsed.lines[4]).suffix, b"   # comment");
+    }
+
+    #[test]
+    fn malformed_lines_are_opaque_and_duplicate_keys_get_occurrences() {
+        let parsed = parse_env_text(".env", "default", b"1BAD=value\nDUP=one\nDUP=two\n");
+
+        assert!(matches!(parsed.lines[0].kind, EnvLineKind::Opaque(_)));
+        assert_eq!(key(&parsed.lines[1]).occurrence_index, 0);
+        assert_eq!(key(&parsed.lines[2]).occurrence_index, 1);
+        assert_eq!(key(&parsed.lines[2]).value.as_bytes(), b"two");
+    }
+
+    #[test]
+    fn preserves_unicode_value_bytes_without_redacting_shape() {
+        let parsed = parse_env_text(".env", "default", "UNICODE=snowman-\u{2603}\n".as_bytes());
+
+        assert_eq!(
+            key(&parsed.lines[0]).value.as_bytes(),
+            "snowman-\u{2603}".as_bytes()
+        );
+        assert_eq!(
+            format!("{:?}", key(&parsed.lines[0]).value),
+            "SecretBytes { len: 11, value: \"[redacted]\" }"
+        );
+    }
+}

@@ -231,6 +231,10 @@ describe("usage rollup contract parity", () => {
   it("fans out the rollup and gates the export query", () => {
     const rollups = readConvexSource("convex/usage_rollups.ts");
     expect(rollups).toContain(".paginate(");
+    expect(rollups).toContain(".paginate({ cursor: null, numItems: limit })");
+    expect(rollups).toContain("if (!page.isDone)");
+    expect(rollups).toContain("return page.page");
+    expect(rollups).not.toContain(".take(limit)");
     expect(rollups).toContain("ctx.scheduler.runAfter");
     expect(rollups).toContain("by_workspace_retention");
     expect(rollups).toContain("by_workspace_day");

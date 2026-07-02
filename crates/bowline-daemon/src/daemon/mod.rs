@@ -71,6 +71,7 @@ mod cli;
 mod control_plane;
 mod protocol;
 mod status;
+mod store_health;
 mod sync;
 mod watcher;
 

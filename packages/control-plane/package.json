@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run src",
+    "test": "pnpm --filter @bowline/contracts exec tsc --build tsconfig.json --force && vitest run src convex-tests",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "convex": "^1.42.0",
+    "convex-test": "^0.0.53",
     "typescript": "^5.9.3",
     "vitest": "^4.1.6"
   }

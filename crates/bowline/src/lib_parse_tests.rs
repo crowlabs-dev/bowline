@@ -90,6 +90,19 @@ fn update_version_requires_value() {
 }
 
 #[test]
+fn prewarm_usage_message_matches_invoked_command() {
+    let cli = parse_args(["prewarm", "--bad"]);
+
+    assert_eq!(
+        cli.command,
+        Command::UsageError {
+            command: CommandName::Prewarm,
+            message: "unknown bowline prewarm option `--bad`".to_string(),
+        }
+    );
+}
+
+#[test]
 fn parses_status_watch_workspace() {
     let cli = parse_args(["status", "--root", "~/Code", "--watch", "--all"]);
 

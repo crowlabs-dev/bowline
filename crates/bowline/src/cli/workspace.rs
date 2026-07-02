@@ -287,14 +287,14 @@ pub(super) fn parse_prewarm_command(args: &[String]) -> Command {
             flag if flag.starts_with("--") => {
                 return usage_error(
                     CommandName::Prewarm,
-                    format!("unknown bowline setup option `{flag}`"),
+                    format!("unknown bowline prewarm option `{flag}`"),
                 );
             }
             value if project_path.is_none() => project_path = Some(value.to_string()),
             _ => {
                 return usage_error(
                     CommandName::Prewarm,
-                    "bowline setup accepts exactly one path",
+                    "bowline prewarm accepts exactly one path",
                 );
             }
         }
@@ -307,7 +307,7 @@ pub(super) fn parse_prewarm_command(args: &[String]) -> Command {
         }),
         None => usage_error(
             CommandName::Prewarm,
-            "bowline setup requires a project path",
+            "bowline prewarm requires a project path",
         ),
     }
 }

@@ -467,3 +467,253 @@ impl From<bowline_storage::ManifestError> for UploadError {
         Self::Manifest(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use bowline_control_plane::{
+        ControlPlaneClient as _, FakeControlPlaneClient, ObjectMetadataCommit, ObjectPointer,
+    };
+    use bowline_core::ids::DeviceId;
+    use bowline_storage::{LocalByteStore, RetentionState};
+
+    use super::*;
+
+    fn temp_root(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "bowline-upload-test-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create test root");
+        root
+    }
+
+    fn object_key(suffix: u32) -> ObjectKey {
+        ObjectKey::new(format!("packs_pk_{suffix:016x}")).expect("valid object key")
+    }
+
+    fn stable_hash(bytes: &[u8]) -> String {
+        format!("b3_{}", blake3::hash(bytes).to_hex())
+    }
+
+    fn metadata(
+        key: ObjectKey,
+        kind: StorageObjectKind,
+        bytes: &[u8],
+        key_epoch: u32,
+    ) -> ObjectMetadata {
+        ObjectMetadata {
+            key,
+            kind,
+            byte_len: bytes.len() as u64,
+            hash: stable_hash(bytes),
+            key_epoch,
+            created_by_device_id: None,
+            created_at_unix_ms: 42,
+            retention_state: RetentionState::Pending,
+            retain_until_unix_ms: None,
+        }
+    }
+
+    fn commit_pointer(
+        control_plane: &FakeControlPlaneClient,
+        workspace_id: &str,
+        key: &ObjectKey,
+        content_id: &str,
+        bytes: &[u8],
+        hash: String,
+    ) {
+        control_plane
+            .create_upload_intent(
+                UploadIntentRequest::new(workspace_id, ObjectKind::SourcePack, bytes.len() as u64)
+                    .with_object_key(key.as_str())
+                    .with_content_id(content_id),
+            )
+            .expect("create upload intent");
+        control_plane
+            .commit_uploaded_object_metadata(ObjectMetadataCommit {
+                workspace_id: workspace_id.to_string(),
+                object: ObjectPointer {
+                    object_key: key.as_str().to_string(),
+                    content_id: content_id.to_string(),
+                    byte_len: bytes.len() as u64,
+                    hash,
+                    key_epoch: 1,
+                    kind: ObjectKind::SourcePack,
+                    created_at: ControlPlaneTimestamp { tick: 99 },
+                },
+                committed_by_device_id: "device-a".to_string(),
+            })
+            .expect("commit uploaded metadata");
+    }
+
+    #[test]
+    fn put_or_read_existing_writes_and_reuses_matching_object() {
+        let root = temp_root("reuse");
+        let store = LocalByteStore::open_deterministic(&root, 7).expect("open byte store");
+        let key = object_key(1);
+        let device_id = DeviceId::new("device-a");
+        let bytes = b"hello source pack";
+
+        let first = put_or_read_existing(
+            &store,
+            key.clone(),
+            StorageObjectKind::SourcePack,
+            "pk_1",
+            bytes,
+            1,
+            Some(&device_id),
+        )
+        .expect("write object");
+        let second = put_or_read_existing(
+            &store,
+            key.clone(),
+            StorageObjectKind::SourcePack,
+            "pk_1",
+            bytes,
+            1,
+            Some(&device_id),
+        )
+        .expect("read existing object");
+
+        assert_eq!(first, second);
+        assert_eq!(second.key, key);
+        assert_eq!(second.kind, StorageObjectKind::SourcePack);
+        assert_eq!(second.created_by_device_id, Some(device_id));
+
+        fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[test]
+    fn validate_uploaded_metadata_accepts_exact_deterministic_metadata() {
+        let key = object_key(2);
+        let bytes = b"manifest bytes";
+        let metadata = metadata(key.clone(), StorageObjectKind::SnapshotManifest, bytes, 3);
+
+        validate_uploaded_metadata(
+            &metadata,
+            &key,
+            StorageObjectKind::SnapshotManifest,
+            bytes,
+            3,
+        )
+        .expect("metadata matches deterministic upload contract");
+    }
+
+    #[test]
+    fn validate_uploaded_metadata_rejects_mismatched_metadata() {
+        let key = object_key(3);
+        let bytes = b"source pack bytes";
+        let mut metadata = metadata(key.clone(), StorageObjectKind::SourcePack, bytes, 1);
+        metadata.hash = stable_hash(b"different bytes");
+
+        let error =
+            validate_uploaded_metadata(&metadata, &key, StorageObjectKind::SourcePack, bytes, 1)
+                .expect_err("metadata hash mismatch must be rejected");
+
+        assert!(matches!(
+            error,
+            UploadError::ControlPlane(ControlPlaneError::Conflict {
+                resource: "object metadata",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn ensure_uploaded_object_reuses_committed_control_plane_metadata() {
+        let workspace_id = "ws_upload";
+        let control_plane = FakeControlPlaneClient::default();
+        control_plane.create_workspace(workspace_id);
+        let root = temp_root("committed");
+        let store = LocalByteStore::open_deterministic(&root, 11).expect("open byte store");
+        let key = object_key(4);
+        let bytes = b"already uploaded bytes";
+        commit_pointer(
+            &control_plane,
+            workspace_id,
+            &key,
+            "pk_committed",
+            bytes,
+            stable_hash(bytes),
+        );
+
+        let metadata = ensure_uploaded_object(
+            &control_plane,
+            &store,
+            UploadObjectRequest {
+                workspace_id,
+                control_plane_kind: ObjectKind::SourcePack,
+                storage_kind: StorageObjectKind::SourcePack,
+                key: key.clone(),
+                content_id: "pk_committed",
+                bytes,
+                key_epoch: 1,
+                device_id: None,
+            },
+        )
+        .expect("committed metadata is reusable");
+
+        assert_eq!(metadata.key, key);
+        assert!(matches!(
+            store.head_object(&metadata.key),
+            Err(ByteStoreError::MissingObject { .. })
+        ));
+
+        fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[test]
+    fn ensure_uploaded_object_rejects_committed_metadata_mismatch() {
+        let workspace_id = "ws_mismatch";
+        let control_plane = FakeControlPlaneClient::default();
+        control_plane.create_workspace(workspace_id);
+        let root = temp_root("mismatch");
+        let store = LocalByteStore::open_deterministic(&root, 13).expect("open byte store");
+        let key = object_key(5);
+        let bytes = b"expected bytes";
+        commit_pointer(
+            &control_plane,
+            workspace_id,
+            &key,
+            "pk_mismatch",
+            bytes,
+            stable_hash(b"not the expected bytes"),
+        );
+
+        let error = ensure_uploaded_object(
+            &control_plane,
+            &store,
+            UploadObjectRequest {
+                workspace_id,
+                control_plane_kind: ObjectKind::SourcePack,
+                storage_kind: StorageObjectKind::SourcePack,
+                key,
+                content_id: "pk_mismatch",
+                bytes,
+                key_epoch: 1,
+                device_id: None,
+            },
+        )
+        .expect_err("control-plane metadata mismatch must fail before local upload");
+
+        assert!(matches!(
+            error,
+            UploadError::ControlPlane(ControlPlaneError::Conflict {
+                resource: "object metadata",
+                ..
+            })
+        ));
+
+        fs::remove_dir_all(root).expect("remove test root");
+    }
+}

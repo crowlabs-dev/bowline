@@ -568,3 +568,95 @@ impl From<serde_json::Error> for ConflictBundleError {
         Self::Json(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    fn temp_state_root(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("bowline-{name}-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn validates_bundle_relative_paths() {
+        assert!(validate_bundle_relative_path("src/main.rs").is_ok());
+        for path in ["", ".", "../escape", "src/../escape", "/abs"] {
+            assert!(matches!(
+                validate_bundle_relative_path(path),
+                Err(ConflictBundleError::UnsafePath(rejected)) if rejected == path
+            ));
+        }
+    }
+
+    #[test]
+    fn detects_secret_bearing_paths() {
+        assert!(is_secret_bearing_path(".env"));
+        assert!(is_secret_bearing_path("apps/web/.env.local"));
+        assert!(is_secret_bearing_path("service.env"));
+        assert!(!is_secret_bearing_path("src/env_reader.rs"));
+    }
+
+    #[test]
+    fn conflict_bundle_writes_manifest_sides_and_unresolved_paths() {
+        let root = temp_state_root("conflict-bundle");
+        let record = ConflictRecord::same_path("src/main.rs");
+        let bundle = create_conflict_bundle(
+            &root,
+            record,
+            &[ConflictFile {
+                relative_path: "src/main.rs".to_string(),
+                base: Some(b"base".to_vec()),
+                local: Some(b"local".to_vec()),
+                remote: Some(b"remote".to_vec()),
+            }],
+        )
+        .expect("bundle");
+
+        assert_eq!(
+            fs::read(bundle.root.join("base/src/main.rs")).unwrap(),
+            b"base"
+        );
+        assert_eq!(
+            fs::read(bundle.root.join("local/src/main.rs")).unwrap(),
+            b"local"
+        );
+        assert_eq!(
+            fs::read(bundle.root.join("remote/src/main.rs")).unwrap(),
+            b"remote"
+        );
+        assert!(bundle.prompt_path.exists());
+        assert_eq!(
+            unresolved_conflict_paths(&root).unwrap(),
+            BTreeSet::from(["src/main.rs".to_string()])
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_private_write_sets_owner_only_permissions() {
+        let root = temp_state_root("conflict-private");
+        let path = root.join("secret.txt");
+        atomic_write_private(&path, b"placeholder").expect("write");
+
+        assert_eq!(fs::read(&path).unwrap(), b"placeholder");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+}

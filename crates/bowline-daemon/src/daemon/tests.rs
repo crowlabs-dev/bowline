@@ -1,3 +1,4 @@
+use super::store_health::StoreHealth;
 use super::{
     Command, ConflictSummary, ContinuousSyncOptions, ContinuousSyncRuntime, DEFAULT_DATABASE_FILE,
     DeviceId, LocalWriteLogRecord, MetadataStore, RemoteRefObserver, STATUS_PUBLISH_INTERVAL,
@@ -134,6 +135,7 @@ fn watcher_error_wakes_reconciliation_and_marks_watcher_limited() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     let drained = runtime.drain_changes();
@@ -179,6 +181,7 @@ fn watcher_drain_disables_saturated_queue_to_keep_daemon_responsive() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     let first = runtime.drain_changes();
@@ -378,6 +381,7 @@ fn completed_sync_records_remote_ref_cursor() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     let summary = SyncOnceSummary {
@@ -447,6 +451,7 @@ fn conflicted_sync_emits_conflict_created_event() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     let summary = SyncOnceSummary {
@@ -562,6 +567,7 @@ fn daemon_requeues_expired_claims_before_next_sync() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     runtime.requeue_expired_sync_claims();
@@ -682,6 +688,7 @@ fn daemon_poll_idles_without_running_sync_once_when_no_work_exists() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     runtime.poll();
@@ -1210,6 +1217,7 @@ fn daemon_routes_missing_remote_bytes_to_offline_queue_state() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     let before = OffsetDateTime::now_utc();
@@ -1292,6 +1300,7 @@ fn daemon_does_not_bypass_pending_backoff_with_fresh_reconcile_rows() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     assert_eq!(runtime.claim_daemon_sync_operation(), None);
@@ -1360,6 +1369,7 @@ fn daemon_poll_waits_for_backoff_instead_of_running_sync_once() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     runtime.poll();
@@ -1435,6 +1445,7 @@ fn daemon_poll_reports_attention_queue_truthfully() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     runtime.poll();
@@ -1504,6 +1515,7 @@ fn daemon_retry_failures_wait_before_next_attempt() {
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     };
 
     let before = OffsetDateTime::now_utc();
@@ -1943,6 +1955,7 @@ fn watcher_test_runtime(
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     }
 }
 
@@ -1979,6 +1992,7 @@ fn fake_daemon_runtime(
         latest_observed_ref: None,
         status_publisher: noop_status_publisher(),
         next_status_publish: Instant::now() + STATUS_PUBLISH_INTERVAL,
+        store_health: StoreHealth::new(),
     }
 }
 
